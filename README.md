@@ -18,10 +18,10 @@ clones' view of the world.
 
 ```
 <workspace>/
-├── .spork/
+├── .spork           -> /path/to/spork-repo  (symlink, shared)
+├── .spork.local/                            (workspace-specific)
 │   ├── config              # ORIGIN_URL / TRUNK_BRANCH / CLONE_PREFIX / POST_CLONE
-│   ├── runtime/            # mirror.git, sync.log, lock files (gitignored)
-│   └── tools/              # symlink to spork repo's tools/, or a copy
+│   └── runtime/            # mirror.git, sync.log, lock files
 ├── justfile                # workspace's just recipes (see examples/)
 ├── p1/                     # clones, named <CLONE_PREFIX><N>
 ├── p2/
@@ -48,37 +48,28 @@ every clone's view of the world.
 
 ## Install in a workspace
 
-Pick whichever of these you prefer:
-
-**Symlink the tools (recommended — get updates by `git pull`ing this repo):**
-
 ```sh
-git clone git@github.com:bentzou/spork.git ~/Code/spork
-mkdir -p ~/Code/myrepo/.spork
-ln -s ~/Code/spork/tools ~/Code/myrepo/.spork/tools
-cp ~/Code/spork/examples/config.example ~/Code/myrepo/.spork/config
-$EDITOR ~/Code/myrepo/.spork/config            # set ORIGIN_URL etc.
-cp ~/Code/spork/examples/justfile.example ~/Code/myrepo/justfile
+git clone git@github.com:bentzou/spork.git ~/Code/spork    # once, anywhere
+
+mkdir -p ~/Code/myrepo && cd ~/Code/myrepo
+ln -s ~/Code/spork .spork
+./.spork/init
+$EDITOR .spork.local/config                                # ORIGIN_URL etc.
+just sync-setup
+just setup-clone
 ```
 
-**Or vendor (just copy in — frozen at install time):**
+`init` creates `.spork.local/{config,runtime/}` (workspace-specific) and
+a workspace `justfile` if one doesn't exist. It's idempotent — safe to
+re-run after pulling spork updates.
 
-```sh
-git clone git@github.com:bentzou/spork.git /tmp/spork
-mkdir -p ~/Code/myrepo/.spork
-cp -r /tmp/spork/tools ~/Code/myrepo/.spork/
-cp /tmp/spork/examples/config.example ~/Code/myrepo/.spork/config
-cp /tmp/spork/examples/justfile.example ~/Code/myrepo/justfile
-```
-
-Then either clone the upstream once into `<CLONE_PREFIX>1/` and run
-`just sync-setup` (mirror seeds from your existing clone — no full
-re-fetch), or run `just sync-setup` first against an empty workspace and
-follow with `just setup-clone` to create clones one at a time.
+The `.spork` symlink stays in sync with this repo via `git -C ~/Code/spork
+pull` from any of your sporked workspaces; the tools all dispatch through
+the symlink.
 
 ## Config
 
-`.spork/config` is sourced as bash. Required:
+`.spork.local/config` is sourced as bash. Required:
 
 | Var | Meaning |
 | --- | --- |
@@ -166,9 +157,10 @@ etc.) if you spork more than one repo.
 
 ```
 spork/
+├── init                    # workspace bootstrap (run once per workspace)
 ├── tools/                  # the scripts behind the just recipes
 ├── examples/
-│   ├── config.example      # template for .spork/config
+│   ├── config.example      # template for .spork.local/config
 │   └── justfile.example    # spork-related just recipes
 └── README.md
 ```

@@ -1,0 +1,56 @@
+#!/bin/bash
+# init — bootstrap a spork workspace.
+#
+# Usage:
+#   mkdir my-workspace && cd my-workspace
+#   ln -s /path/to/spork-repo .spork
+#   ./.spork/init
+#
+# Creates .spork.local/{config,runtime/} and a workspace justfile.
+# Idempotent: re-running it leaves existing files alone.
+
+set -euo pipefail
+
+# When invoked through .spork/init in a workspace, the logical path of
+# this script's directory is <workspace>/.spork (symlink-preserving), so
+# its parent is the workspace root.
+spork_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+if [[ "$(basename "$spork_dir")" != ".spork" ]]; then
+    cat <<EOF >&2
+init must be invoked through a .spork symlink in a workspace, e.g.:
+  ln -s "$spork_dir" /path/to/workspace/.spork
+  /path/to/workspace/.spork/init
+EOF
+    exit 1
+fi
+
+workspace=$(cd "$spork_dir/.." && pwd)
+local_dir="$workspace/.spork.local"
+
+mkdir -p "$local_dir/runtime"
+echo "  ensured $local_dir/runtime/"
+
+if [[ -f "$local_dir/config" ]]; then
+    echo "  exists  $local_dir/config"
+else
+    cp "$spork_dir/examples/config.example" "$local_dir/config"
+    echo "  created $local_dir/config"
+fi
+
+if [[ -f "$workspace/justfile" ]]; then
+    echo "  exists  $workspace/justfile (merge spork recipes from"
+    echo "          .spork/examples/justfile.example if needed)"
+else
+    cp "$spork_dir/examples/justfile.example" "$workspace/justfile"
+    echo "  created $workspace/justfile"
+fi
+
+cat <<EOF
+
+Next:
+  1. \$EDITOR $local_dir/config       # set ORIGIN_URL / TRUNK_BRANCH / ...
+  2. cd $workspace
+  3. just sync-setup                  # creates the shared bare mirror
+  4. just setup-clone                 # create the first clone
+EOF
