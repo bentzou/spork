@@ -1,12 +1,12 @@
-# spork recipes — copy into your workspace's justfile (or merge with existing).
-# Assumes spork tools are reachable at .spork/tools/. If you symlink the
-# spork repo's tools/ in (recommended), the paths below work as-is.
+# spork recipes — copy into your workspace's justfile (or merge with an
+# existing one). Paths assume the standard install where .spork is a
+# symlink to the spork repo.
 
-# One-line status per clone (ready / branch work / local changes / needs pull).
+# One-line status per clone (no network).
 status:
     @./.spork/tools/status-all.sh
 
-# Pull trunk in every clone. Skips non-trunk branches and dirty trees.
+# Pull trunk in every clean clone. Skips non-trunk branches and dirty trees.
 pull:
     @./.spork/tools/pull-all.sh
 
@@ -14,19 +14,19 @@ pull:
 fetch:
     @./.spork/tools/pull-all.sh --fetch-only
 
-# One-time: create shared bare mirror and link each clone to it.
+# One-time: create the shared bare mirror and link each clone to it.
 sync-setup:
     @./.spork/tools/setup-mirror.sh
 
-# Status table + background fetch/pull via the shared mirror.
+# Status table, then background fetch/pull via the shared mirror.
 sync:
     @./.spork/tools/status-all.sh
     @( ./.spork/tools/sync-bg.sh </dev/null >/dev/null 2>&1 & ) </dev/null
 
-# Create the next clone (highest existing $CLONE_PREFIX<N> + 1) using the local mirror.
-setup-clone:
-    @./.spork/tools/setup-clone.sh
+# Create the next clone using the local mirror (no network).
+add-clone:
+    @./.spork/tools/add-clone.sh
 
-# Print the path of the first ready clone (use a shell wrapper to actually cd there).
+# Print the path of the first ready clone (pair with a shell alias that cds to it).
 go:
     @./.spork/tools/pick-ready.sh
