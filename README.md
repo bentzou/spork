@@ -56,7 +56,7 @@ ln -s ~/Code/spork .spork
 ./.spork/init
 $EDITOR .spork.local/config                                # ORIGIN_URL etc.
 just sync-setup
-just add-clone
+just clone
 ```
 
 `init` creates `.spork.local/{config,runtime/}` (workspace-specific) and
@@ -75,7 +75,7 @@ the symlink.
 | --- | --- |
 | `ORIGIN_URL` | Upstream URL — only matching clones are tracked. |
 | `TRUNK_BRANCH` | Branch that `just sync` ff-merges; others are fetch-only. |
-| `CLONE_PREFIX` | Prefix `add-clone` uses for new clones. Default `p`. |
+| `CLONE_PREFIX` | Prefix `clone` uses for new clones. Default `p`. |
 
 ## Recipes
 
@@ -88,7 +88,7 @@ The recipes in `examples/justfile.example` wrap the scripts in `tools/`:
 | `just pull` | Foreground ff-merge of trunk in every clean clone. |
 | `just fetch` | Foreground fetch in every clone. |
 | `just sync-setup` | One-time: create the mirror and link existing clones. |
-| `just add-clone` | Create the next `<CLONE_PREFIX><N>` clone, wired to the mirror. No network. |
+| `just clone` | Create the next `<CLONE_PREFIX><N>` clone, wired to the mirror. No network. |
 | `just go` | Print the path of the first ready clone (for shell `cd`). |
 
 ## "Ready" definition
@@ -125,7 +125,7 @@ REPO  BRANCH  STATE  AGE
 ## Post-clone bootstrap
 
 Set `POST_CLONE` in `.spork/config` to run a command inside each new
-clone after `add-clone` finishes the trunk checkout — e.g. installing
+clone after `clone` finishes the trunk checkout — e.g. installing
 dependencies. Spork ships no default; leave it empty to skip.
 
 ```sh
@@ -135,7 +135,7 @@ POST_CLONE=./scripts/setup-new-clone.sh
 ```
 
 The value is `eval`'d in a subshell with cwd set to the new clone.
-Non-zero exit aborts `add-clone` but leaves the clone on disk — fix
+Non-zero exit aborts `clone` but leaves the clone on disk — fix
 the cause and re-run the command manually in that directory.
 
 ## Convenience shell shortcuts (optional)
