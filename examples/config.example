@@ -6,7 +6,14 @@
 #               branch is left alone (fetch-only).
 # CLONE_PREFIX: prefix `setup-clone` uses when picking the next clone name
 #               (e.g. `p` -> p1, p2, ... ; `clone-` -> clone-1, clone-2, ...).
+# POST_CLONE:   optional bash command run inside each new clone after
+#               `setup-clone` finishes the trunk checkout. Empty/unset = skip.
+#               Examples:
+#                 POST_CLONE='bun install'
+#                 POST_CLONE='pnpm install && pnpm run prepare'
+#                 POST_CLONE=./scripts/setup-new-clone.sh
 
 ORIGIN_URL=git@github.com:YOUR-ORG/YOUR-REPO.git
 TRUNK_BRANCH=main
 CLONE_PREFIX=p
+POST_CLONE=

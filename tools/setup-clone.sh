@@ -63,12 +63,11 @@ git -C "$target" checkout -q --no-track -b "$TRUNK_BRANCH" "origin/$TRUNK_BRANCH
 git -C "$target" config "branch.$TRUNK_BRANCH.remote" origin
 git -C "$target" config "branch.$TRUNK_BRANCH.merge"  "refs/heads/$TRUNK_BRANCH"
 
-# Optional per-workspace bootstrap: `bun install`, `pnpm install`, etc.
-# Spork stays generic; the workspace decides what (if anything) runs.
-hook="$SPORK_DIR/hooks/post-clone"
-if [[ -x "$hook" ]]; then
-    echo "Running post-clone hook ..."
-    "$hook" "$target"
+# Optional per-workspace bootstrap (POST_CLONE in .spork/config) — e.g.
+# `bun install`, `pnpm install && pnpm run prepare`. Runs in the new clone.
+if [[ -n "${POST_CLONE:-}" ]]; then
+    echo "Running POST_CLONE: $POST_CLONE"
+    ( cd "$target" && eval "$POST_CLONE" )
 fi
 
 echo "Done: $target"
