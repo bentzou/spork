@@ -43,18 +43,52 @@ fi
 paths=()
 while IFS= read -r line; do paths+=("$line"); done < <(spork_clones)
 
+# Fetch from the mirror, repairing stale loose remote-tracking refs that point
+# at GC'd objects (typical after a PR is merged + branch deleted on origin).
+# Such refs cause `git fetch` to abort with `fatal: bad object refs/remotes/origin/<X>`
+# before prune can clean them up. We parse the offending ref from stderr,
+# `update-ref -d` it, and retry — capped to avoid pathological loops.
+#
+# Output format on stdout (single line): "<repaired_count>|<final_message>"
+# Return 0 on eventual fetch success, 1 on persistent failure.
+fetch_with_repair() {
+    local path="$1" attempt fetch_err bad_ref repaired=0
+    for attempt in 1 2 3 4 5 6; do
+        if fetch_err=$(git -C "$path" fetch mirror --prune --quiet 2>&1); then
+            printf '%d|%s' "$repaired" "$fetch_err"
+            return 0
+        fi
+        bad_ref=$(printf '%s\n' "$fetch_err" | sed -n 's|^fatal: bad object \(refs/remotes/origin/.*\)$|\1|p' | head -1)
+        if [[ -z "$bad_ref" ]] || ! git -C "$path" update-ref -d "$bad_ref" 2>/dev/null; then
+            printf '%d|%s' "$repaired" "$fetch_err"
+            return 1
+        fi
+        repaired=$((repaired + 1))
+    done
+    printf '%d|%s' "$repaired" "$fetch_err"
+    return 1
+}
+
 sync_one() {
     local path="$1"
     local name; name=$(basename "$path")
+    local repair_note='' repaired fetch_msg fetch_out
 
     if ! git -C "$path" config --get remote.mirror.url >/dev/null 2>&1; then
         printf '%s: skipped (no mirror remote — run sync-setup)\n' "$name"
         return
     fi
 
-    if ! fetch_err=$(git -C "$path" fetch mirror --quiet 2>&1); then
-        printf '%s: failed: fetch mirror: %s\n' "$name" "$(echo "$fetch_err" | head -1)"
+    if fetch_out=$(fetch_with_repair "$path"); then
+        repaired="${fetch_out%%|*}"
+    else
+        repaired="${fetch_out%%|*}"
+        fetch_msg="${fetch_out#*|}"
+        printf '%s: failed: fetch mirror: %s\n' "$name" "$(echo "$fetch_msg" | head -1)"
         return
+    fi
+    if (( repaired > 0 )); then
+        repair_note=$(printf ' (repaired %d stale ref(s))' "$repaired")
     fi
 
     local branch dirty_count
@@ -62,17 +96,17 @@ sync_one() {
     dirty_count=$(git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
 
     if [[ "$branch" != "$TRUNK_BRANCH" ]]; then
-        printf '%s: fetched only (branch=%s)\n' "$name" "$branch"
+        printf '%s: fetched only (branch=%s)%s\n' "$name" "$branch" "$repair_note"
         return
     fi
 
     if (( dirty_count > 0 )); then
-        printf '%s: fetched only (dirty: %d uncommitted)\n' "$name" "$dirty_count"
+        printf '%s: fetched only (dirty: %d uncommitted)%s\n' "$name" "$dirty_count" "$repair_note"
         return
     fi
 
     if ! git -C "$path" rev-parse --verify --quiet "refs/remotes/origin/$TRUNK_BRANCH" >/dev/null; then
-        printf '%s: fetched only (no origin/%s ref)\n' "$name" "$TRUNK_BRANCH"
+        printf '%s: fetched only (no origin/%s ref)%s\n' "$name" "$TRUNK_BRANCH" "$repair_note"
         return
     fi
 
@@ -85,9 +119,9 @@ sync_one() {
     after=$(git -C "$path" rev-parse HEAD)
 
     if [[ "$before" == "$after" ]]; then
-        printf '%s: up to date\n' "$name"
+        printf '%s: up to date%s\n' "$name" "$repair_note"
     else
-        printf '%s: pulled %s..%s\n' "$name" "${before:0:7}" "${after:0:7}"
+        printf '%s: pulled %s..%s%s\n' "$name" "${before:0:7}" "${after:0:7}" "$repair_note"
     fi
 }
 
