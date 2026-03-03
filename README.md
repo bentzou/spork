@@ -83,6 +83,34 @@ The `.spork` symlink stays in sync with this repo via `git -C ~/Code/spork
 pull` from any of your sporked workspaces; the tools all dispatch through
 the symlink.
 
+## Recipes & the workspace justfile
+
+The recipes live in `spork.just` at the repo root. A workspace doesn't copy
+them — its `justfile` **imports** them through the symlink:
+
+```just
+set shell := ["bash", "-uc"]
+set allow-duplicate-recipes := true
+
+import '.spork/spork.just'
+
+[private]
+default:
+    @just --list --unsorted
+
+# workspace-specific recipes / overrides go here
+```
+
+So `spork.just` is the single source of truth, and `git -C ~/Code/spork pull`
+updates every workspace's recipes at once — no per-workspace copy to keep in
+sync. `init` writes this stub (it's `examples/justfile.example`) for new
+workspaces.
+
+To customize a workspace, add recipes below the import, or **override** a
+shared recipe by redefining it — `set allow-duplicate-recipes` lets the local
+definition win. For example, a monorepo whose app lives in a subdir overrides
+`claude`/`go` to `cd "$path/SUBDIR"` while inheriting everything else.
+
 ## Config
 
 `.spork.local/config` is sourced as bash. Required:
@@ -95,7 +123,7 @@ the symlink.
 
 ## Recipes
 
-The recipes in `examples/justfile.example` wrap the scripts in `tools/`:
+The recipes in `spork.just` wrap the scripts in `tools/`:
 
 | Command | What it does |
 | --- | --- |
@@ -208,10 +236,11 @@ etc.) if you spork more than one repo.
 ```
 spork/
 ├── init                    # workspace bootstrap (run once per workspace)
+├── spork.just              # shared recipes, imported by each workspace justfile
 ├── tools/                  # the scripts behind the just recipes
 ├── examples/
 │   ├── config.example      # template for .spork.local/config
-│   └── justfile.example    # spork-related just recipes
+│   └── justfile.example    # the thin workspace justfile stub init writes
 └── README.md
 ```
 
