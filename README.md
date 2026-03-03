@@ -37,7 +37,7 @@ clones' view of the world.
 ├── .spork           -> /path/to/spork-repo  (symlink, shared)
 ├── .spork.local/                            (workspace-specific)
 │   ├── config              # ORIGIN_URL / TRUNK_BRANCH / CLONE_PREFIX / POST_CLONE
-│   └── runtime/            # mirror.git, sync.log, lock files
+│   └── runtime/            # mirror.git, sync.log, lock files, claims/
 ├── justfile                # workspace's just recipes (see examples/)
 ├── p1/                     # clones, named <CLONE_PREFIX><N>
 ├── p2/
@@ -105,7 +105,8 @@ The recipes in `examples/justfile.example` wrap the scripts in `tools/`:
 | `just fetch` | Foreground fetch in every clone. |
 | `just sync-setup` | One-time: create the mirror and link existing clones. |
 | `just clone` | Create the next `<CLONE_PREFIX><N>` clone, wired to the mirror. No network. |
-| `just go` | Print the path of the first ready clone (for shell `cd`). |
+| `just go` | Print the path of the first ready, unclaimed clone (for shell `cd`). |
+| `just claude` | Claim the first ready, unclaimed clone and open Claude in it. |
 
 ## "Ready" definition
 
@@ -115,7 +116,29 @@ A clone is **ready** when:
 - working tree is clean (`git status --porcelain` empty),
 - in sync with `origin/$TRUNK_BRANCH` (no ahead/behind).
 
-`just go` picks the first ready clone in iteration order.
+`just go` picks the first ready, unclaimed clone in iteration order.
+
+## Claims
+
+Opening a session in a clone doesn't change its git state, so a freshly
+opened clone still looks **ready** — which means two terminals each running
+`jc`/`just claude` would otherwise both land in the *same* clone. Claims
+prevent that.
+
+A **claim** is the directory `runtime/claims/<clone>`, holding a `pid` file
+with the owning process. `just claude` (and the `jc` shortcut) grabs the
+first ready clone by atomically creating that directory — `mkdir` is atomic,
+so concurrent invocations grab different clones instead of colliding. `just
+go` and the picker skip any clone with a live claim.
+
+A claim is **live** only while its owner PID is running, so it self-heals:
+
+- normal exit releases the claim promptly,
+- a crash or `kill -9` that skips the release leaves a claim whose owner is
+  gone — the next claim reclaims it. No background reaper, no stale locks.
+
+The owner PID is the shell/session that lives for the duration of the work
+(your interactive shell for `jc`, the recipe's shell for `just claude`).
 
 ## Status table columns
 
@@ -163,8 +186,19 @@ real shell — here's a pattern:
 ```bash
 alias js='builtin cd ~/Code/myrepo && just sync'
 jg () { local p; p=$(builtin cd ~/Code/myrepo && just go) || return; builtin cd "$p"; }
-jc () { local p; p=$(builtin cd ~/Code/myrepo && just go) || return; builtin cd "$p"; claude; }
+# Claim a ready clone, run Claude, then release it. $$ is the interactive
+# shell — it owns the claim, so a closed terminal frees the clone (see Claims).
+jc () {
+   local p
+   p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$") || return
+   builtin cd "$p"
+   claude
+   ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
+}
 ```
+
+`jc` calls `claim.sh` directly (not via `just`) so the claim is owned by your
+interactive shell, not a short-lived `just` process that exits immediately.
 
 Mirror this block per workspace with a different prefix (`xs`/`xg`/`xc`,
 etc.) if you spork more than one repo.

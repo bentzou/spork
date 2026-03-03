@@ -27,6 +27,14 @@ sync:
 clone:
     @./.spork/tools/clone.sh
 
-# Print the path of the first ready clone (pair with a shell alias that cds to it).
+# Print the path of the first ready, unclaimed clone (pair with a shell alias that cds to it).
 go:
     @./.spork/tools/pick-ready.sh
+
+# Claim the first ready, unclaimed clone, open Claude in it, and release on exit.
+# $$ (this recipe's shell) owns the claim; if it dies the claim self-frees.
+claude:
+    @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
+     path=$(./.spork/tools/claim.sh "$owner") || exit 1; \
+     trap 'bash "$rel" "$path" "$owner"' EXIT; \
+     cd "$path" && claude
