@@ -10,6 +10,9 @@ set -uo pipefail
 
 format_relative() {
     local s="$1"
+    # `now` is sampled once up front, so a session that writes its log after
+    # that sampling yields a small negative delta — clamp it to 0.
+    (( s < 0 )) && s=0
     if (( s < 60 ));     then printf '%ss' "$s"
     elif (( s < 3600 )); then printf '%sm' "$(( s / 60 ))"
     elif (( s < 86400 ));then printf '%sh' "$(( s / 3600 ))"
