@@ -61,6 +61,13 @@ status_for() {
         read -r ahead behind < <(git -C "$path" rev-list --left-right --count 'HEAD...@{upstream}' 2>/dev/null || echo "0 0")
     fi
 
+    # STATE answers one question: can I pick this clone up right now, and if
+    # not, why? It's a single verdict, not two orthogonal facts — so a live
+    # claim and git state collapse into one word with a clear precedence:
+    #   broken  — git can't read the repo (returned above; trumps everything)
+    #   in use  — a live session is attached (overrides git state)
+    #   branch/local/pull/push — parked: has work that blocks a clean pickup
+    #   open    — on trunk, clean, in sync, unclaimed → exactly what `jc` hands you
     if [[ "$branch" != "$TRUNK_BRANCH" ]]; then
         state="branch"
     elif (( dirty_count > 0 )); then
@@ -70,7 +77,13 @@ status_for() {
     elif (( ahead > 0 )); then
         state="push"
     else
-        state="ready"
+        state="open"
+    fi
+
+    # A live claim means someone is in it now, whatever the git state says.
+    # (When they exit, the clone reverts to the git-derived state above.)
+    if clone_occupied "$path"; then
+        state="in use"
     fi
 
     echo "${branch}|${state}"
@@ -123,10 +136,10 @@ printf '%-*s  %-*s  %-*s   %s\n' \
     "$state_width" "STATE" "AGE"
 
 active_idx=()
-ready_idx=()
+open_idx=()
 for i in "${!paths[@]}"; do
-    if [[ "${state_cells[$i]}" == "ready" ]]; then
-        ready_idx+=("$i")
+    if [[ "${state_cells[$i]}" == "open" ]]; then
+        open_idx+=("$i")
     else
         active_idx+=("$i")
     fi
@@ -144,11 +157,11 @@ fi
 # Color the STATE word by meaning, not the whole row.
 state_color() {
     case "$1" in
-        ready)              printf '%s' "$c_green"  ;;
-        branch)             printf '%s' "$c_cyan"   ;;
-        local|pull|push)    printf '%s' "$c_yellow" ;;
-        broken)             printf '%s' "$c_red"    ;;
-        *)                  printf '%s' ''          ;;
+        open)                  printf '%s' "$c_green"  ;;
+        branch)                printf '%s' "$c_cyan"   ;;
+        "in use"|local|pull|push) printf '%s' "$c_yellow" ;;
+        broken)                printf '%s' "$c_red"    ;;
+        *)                     printf '%s' ''          ;;
     esac
 }
 
@@ -184,9 +197,9 @@ print_row() {
 }
 
 for i in ${active_idx[@]+"${active_idx[@]}"}; do print_row "$i" "${age_cells[$i]}"; done
-# Ready rows: no AGE (the question is "is anything stale" — already-ready
-# repos are not the answer).
-for i in ${ready_idx[@]+"${ready_idx[@]}"}; do print_row "$i" ""; done
+# Open clones go last, with no AGE: they're the answer to "what can I grab",
+# and a free clone's last-touched time isn't decision-relevant.
+for i in ${open_idx[@]+"${open_idx[@]}"}; do print_row "$i" ""; done
 
 # Join "$@" with " · ".
 join_dot() {
