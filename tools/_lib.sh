@@ -34,6 +34,10 @@ LOG_FILE="$RUNTIME_DIR/sync.log"
 # shellcheck disable=SC2034
 LOCK_DIR="$RUNTIME_DIR/sync.lock"
 CLAIMS_DIR="$RUNTIME_DIR/claims"
+# Where Claude Code stores per-cwd session logs. Overridable so the session
+# readers below can be tested against a fixture root.
+# shellcheck disable=SC2034
+CLAUDE_PROJECTS_DIR="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
 
 if [[ ! -f "$LOCAL_DIR/config" ]]; then
     echo "Missing $LOCAL_DIR/config — run \`.spork/init\` to create one." >&2
@@ -138,4 +142,61 @@ release_claim() {
         return 1
     fi
     rm -rf "${CLAIMS_DIR:?}/$name"
+}
+
+# Claude sessions
+# ---------------
+# Claude Code writes one jsonl per session under CLAUDE_PROJECTS_DIR, in a
+# directory whose name is the session's cwd with `/` replaced by `-`. These
+# readers surface, per clone, when it was last worked in and the title of that
+# session — the AGE and SESSION columns in `just status`.
+
+# Latest AI-generated title in a session jsonl, or empty. Titles are appended
+# over a session's life as `ai-title` records
+# ({"type":"ai-title","aiTitle":"…","sessionId":…}), so the last one wins.
+# Best-effort string parse — no jq dependency; anything it can't parse (unknown
+# key order, malformed line) degrades to empty rather than failing.
+claude_session_title() {
+    local file="$1" line title
+    [[ -f "$file" ]] || return 0
+    line=$(grep -F '"type":"ai-title"' "$file" 2>/dev/null | tail -1)
+    [[ -n "$line" ]] || return 0
+    # Value runs from `"aiTitle":"` to the record's `","sessionId":"…"` tail;
+    # anchoring on that tail tolerates commas/escaped quotes inside the title.
+    title=$(sed -n 's/.*"aiTitle":"\(.*\)","sessionId":"[^"]*".*/\1/p' <<<"$line")
+    # Fallback for a differently-ordered record (title then has no embedded ").
+    [[ -z "$title" ]] && title=$(sed -n 's/.*"aiTitle":"\([^"]*\)".*/\1/p' <<<"$line")
+    # Unescape the JSON string escapes a short title can realistically contain.
+    title=${title//\\\"/\"}
+    title=${title//\\\\/\\}
+    printf '%s' "$title"
+}
+
+# Newest session (by mtime) for any cwd inside a clone, as "<epoch>|<title>".
+# Both empty ("|") when the clone has no sessions. Project dirs encode the cwd
+# as its absolute path with `/`→`-`; subdir sessions (e.g. `<repo>-src-app`)
+# count too, so work done in a monorepo subpath still registers. Title is read
+# from that same newest file — i.e. the session you most recently touched here.
+claude_newest_session() {
+    local repo_path="${1%/}"
+    local encoded="${repo_path//\//-}"
+    local root="$CLAUDE_PROJECTS_DIR"
+    [[ -d "$root" ]] || { printf '|'; return 0; }
+
+    local best=0 best_file="" dir f mtime
+    shopt -s nullglob
+    for dir in "$root/$encoded" "$root/$encoded"-*; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*.jsonl; do
+            mtime=$(stat -f %m "$f" 2>/dev/null || echo 0)
+            (( mtime > best )) && { best=$mtime; best_file=$f; }
+        done
+    done
+    shopt -u nullglob
+
+    if (( best > 0 )); then
+        printf '%s|%s' "$best" "$(claude_session_title "$best_file")"
+    else
+        printf '|'
+    fi
 }
