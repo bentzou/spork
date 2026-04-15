@@ -160,6 +160,29 @@ check "open clone still shows its branch"  "main" "$(field_of BRANCH p2)"
 
 # ---------------------------------------------------------------------------
 echo
+echo "status: rows are ordered naturally (p10 after p9, not after p1)"
+
+# A fresh workspace with >9 ready clones exposes lexicographic vs natural order:
+# plain glob sort interleaves p10 between p1 and p2; natural sort keeps p1..p10
+# in numeric order. Rows render in spork_clones() order, so assert on row index.
+make_workspace 10
+
+# 1-based index of clone <name>'s row in the body (header stripped), or empty.
+# Capture status once into awk (no pipe) so awk can stop at the match without
+# racing the producer into a broken pipe.
+row_index_of() {
+    local name="$1"
+    awk -v repo="$name" '
+        function trim(s){ gsub(/^ +| +$/, "", s); return s }
+        NR==1 { next }                         # skip header
+        { if (trim($1) == repo) { print NR-1; exit } }' <<<"$(status)"
+}
+check "p1 precedes p2"   "1" "$(( $(row_index_of p1)  < $(row_index_of p2)  ))"
+check "p2 precedes p10"  "1" "$(( $(row_index_of p2)  < $(row_index_of p10) ))"
+check "p9 precedes p10"  "1" "$(( $(row_index_of p9)  < $(row_index_of p10) ))"
+
+# ---------------------------------------------------------------------------
+echo
 nfail=$(wc -l < "$FAILFILE" | tr -d ' ')
 echo "failed: $nfail"
 (( nfail == 0 ))

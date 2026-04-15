@@ -73,12 +73,17 @@ ensure_status_perf() {
 spork_clones() {
     local path url
     shopt -s nullglob
+    # The shell glob sorts lexicographically, which interleaves p10 between p1
+    # and p2. Pipe through `sort -V` for natural (version) order so numeric
+    # suffixes rank numerically — p1, p2, ..., p9, p10. This is the single
+    # ordering source for the status table and for pick-ready/claim's
+    # "first ready" choice, so fixing it here corrects both.
     for path in "$BASE_DIR"/*/; do
         url=$(git -C "$path" config --get remote.origin.url 2>/dev/null || echo "")
         if [[ "$url" == "$ORIGIN_URL" ]]; then
             echo "$path"
         fi
-    done
+    done | sort -V
 }
 
 # True if a clone is "ready": on TRUNK_BRANCH, clean working tree, and in sync
