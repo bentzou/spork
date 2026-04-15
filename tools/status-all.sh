@@ -85,7 +85,7 @@ fi
 # Compute every cell up front so column widths align. BRANCH is the trailing,
 # free-text-safe column (no spaces), so it needs no width; every column before
 # it is padded.
-repo_width=4     # min for "REPO" header
+repo_width=3     # min for "REP" header
 session_width=7  # min for "SESSION" header
 state_width=5    # min for "STATE" header
 age_width=3      # min for "AGE" header
@@ -152,8 +152,8 @@ for i in "${!paths[@]}"; do
     (( ${#age}     > age_width ))      && age_width=${#age}
 done
 
-printf '%-*s   %-*s   %-*s   %-*s   %s\n' \
-    "$repo_width" "REPO" \
+printf '%*s   %-*s   %-*s   %-*s   %s\n' \
+    "$repo_width" "REP" \
     "$session_width" "SESSION" \
     "$state_width" "STATE" \
     "$age_width" "AGE" "BRANCH"
@@ -226,7 +226,7 @@ print_row() {
     (( sess_pad < 0 )) && sess_pad=0
 
     printf '%s%s%s%s   %s%*s   %s%s%s%s   %s%s%s%s   %s\n' \
-        "$sc" "$name" "$c_reset" "$name_tail" \
+        "$name_tail" "$sc" "$name" "$c_reset" \
         "$session" "$sess_pad" "" \
         "$sc" "$state" "$c_reset" "$state_tail" \
         "$ac" "$age" "$c_reset" "$age_tail" \
