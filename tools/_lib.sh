@@ -183,16 +183,27 @@ claude_newest_session() {
     local root="$CLAUDE_PROJECTS_DIR"
     [[ -d "$root" ]] || { printf '|'; return 0; }
 
-    local best=0 best_file="" dir f mtime
+    local files=() dir
     shopt -s nullglob
     for dir in "$root/$encoded" "$root/$encoded"-*; do
         [[ -d "$dir" ]] || continue
-        for f in "$dir"/*.jsonl; do
-            mtime=$(stat -f %m "$f" 2>/dev/null || echo 0)
-            (( mtime > best )) && { best=$mtime; best_file=$f; }
-        done
+        files+=("$dir"/*.jsonl)
     done
     shopt -u nullglob
+
+    (( ${#files[@]} == 0 )) && { printf '|'; return 0; }
+
+    # One `stat` for all of a clone's session files, not one per file: emit
+    # "<mtime> <path>" lines and keep the newest. A busy clone can have hundreds
+    # of session logs, and a stat-per-file fork was the bulk of `just status`'s
+    # cost. Session files are UUID-named jsonl (no spaces/newlines), so the path
+    # survives first-space splitting intact.
+    local best=0 best_file="" line mtime file
+    while IFS= read -r line; do
+        mtime="${line%% *}"
+        file="${line#* }"
+        (( mtime > best )) && { best=$mtime; best_file=$file; }
+    done < <(stat -f '%m %N' "${files[@]}" 2>/dev/null)
 
     if (( best > 0 )); then
         printf '%s|%s' "$best" "$(claude_session_title "$best_file")"
