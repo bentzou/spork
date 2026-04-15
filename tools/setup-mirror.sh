@@ -58,6 +58,11 @@ done
 link_one() {
     local path="$1"
 
+    # Backfill the status perf config on every run, even for already-linked
+    # clones — a cheap `just sync-setup` re-run is how existing workspaces pick
+    # it up (idempotent; only writes when unset).
+    ensure_status_perf "$path"
+
     local git_dir
     git_dir=$(git -C "$path" rev-parse --git-dir 2>/dev/null)
     if [[ "$git_dir" != /* ]]; then
