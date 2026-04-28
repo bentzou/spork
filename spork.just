@@ -13,6 +13,22 @@
 go:
     @./.spork/tools/pick-ready.sh
 
+# OWNER is a long-lived PID that keeps the claim held — pass your interactive
+# shell's $$ so a shell function can `cd` into the path and `release` it later,
+# with the claim owned by your terminal (it self-frees when the terminal closes)
+# rather than a transient just process. Bare `just claude` does this internally.
+# Claim the first ready, unclaimed clone for OWNER and print its path.
+[group('use')]
+claim owner:
+    @./.spork/tools/claim.sh "{{owner}}"
+
+# CLONE is a clone path or bare name; OWNER is the PID that claimed it. A no-op
+# if the clone was already reclaimed by someone else.
+# Release the claim on CLONE held by OWNER (pairs with `claim`).
+[group('use')]
+release clone owner:
+    @./.spork/tools/release.sh "{{clone}}" "{{owner}}"
+
 # $$ (this recipe's shell) owns the claim; if it dies the claim self-frees.
 # Claim the first ready, unclaimed clone, open Claude in it, and release on exit.
 [group('use')]
