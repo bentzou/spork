@@ -8,17 +8,7 @@ set -uo pipefail
 # shellcheck source=_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
-format_relative() {
-    local s="$1"
-    # `now` is sampled once up front, so a session that writes its log after
-    # that sampling yields a small negative delta — clamp it to 0.
-    (( s < 0 )) && s=0
-    if (( s < 60 ));     then printf '%ss' "$s"
-    elif (( s < 3600 )); then printf '%sm' "$(( s / 60 ))"
-    elif (( s < 86400 ));then printf '%sh' "$(( s / 3600 ))"
-    else                      printf '%sd' "$(( s / 86400 ))"
-    fi
-}
+# format_relative lives in _lib.sh (shared with log-all.sh).
 
 # Longest SESSION title rendered before truncation with an ellipsis. The column
 # is last, so this only bounds row length — it never affects other columns.

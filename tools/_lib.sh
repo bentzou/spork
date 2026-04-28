@@ -166,12 +166,27 @@ release_claim() {
     rm -rf "${CLAIMS_DIR:?}/$name"
 }
 
+# Render a non-negative duration in seconds as a compact relative age
+# (45s / 12m / 3h / 5d). Shared by the status table and the session log.
+format_relative() {
+    local s="$1"
+    # A caller that sampled `now` before a session wrote its log can pass a
+    # small negative delta — clamp it to 0.
+    (( s < 0 )) && s=0
+    if (( s < 60 ));     then printf '%ss' "$s"
+    elif (( s < 3600 )); then printf '%sm' "$(( s / 60 ))"
+    elif (( s < 86400 ));then printf '%sh' "$(( s / 3600 ))"
+    else                      printf '%sd' "$(( s / 86400 ))"
+    fi
+}
+
 # Claude sessions
 # ---------------
 # Claude Code writes one jsonl per session under CLAUDE_PROJECTS_DIR, in a
 # directory whose name is the session's cwd with `/` replaced by `-`. These
 # readers surface, per clone, when it was last worked in and the title of that
-# session — the AGE and SESSION columns in `just status`.
+# session — the AGE and SESSION columns in `just status`, and the per-session
+# history behind `just log`.
 
 # Latest AI-generated title in a session jsonl, or empty. Titles are appended
 # over a session's life as `ai-title` records
@@ -194,16 +209,24 @@ claude_session_title() {
     printf '%s' "$title"
 }
 
-# Newest session (by mtime) for any cwd inside a clone, as "<epoch>|<title>".
-# Both empty ("|") when the clone has no sessions. Project dirs encode the cwd
-# as its absolute path with `/`→`-`; subdir sessions (e.g. `<repo>-src-app`)
-# count too, so work done in a monorepo subpath still registers. Title is read
-# from that same newest file — i.e. the session you most recently touched here.
-claude_newest_session() {
+# Every session jsonl belonging to a clone, as "<mtime> <path>" lines, one per
+# session — including sessions you've already closed, since each leaves its log
+# behind. Unsorted; empty output when the clone has no sessions. Project dirs
+# encode the cwd as its absolute path with `/`→`-`; subdir sessions (e.g. a
+# monorepo `<repo>-src-app`) count too, so work in a subpath still registers.
+#
+# Cheap by design: one `stat` for the whole clone, no title parsing. A busy
+# clone can have hundreds of logs and a stat-per-file fork was the bulk of
+# `just status`'s cost. This is the single source of the "which logs belong to
+# this clone" rule — claude_newest_session and `just log` both build on it.
+# Session files are UUID-named jsonl (no newlines), and the mtime is the first
+# space-delimited field, so callers can split on the first space; a path with
+# spaces still survives that split intact (everything after the first space).
+claude_clone_session_files() {
     local repo_path="${1%/}"
     local encoded="${repo_path//\//-}"
     local root="$CLAUDE_PROJECTS_DIR"
-    [[ -d "$root" ]] || { printf '|'; return 0; }
+    [[ -d "$root" ]] || return 0
 
     local files=() dir
     shopt -s nullglob
@@ -213,19 +236,21 @@ claude_newest_session() {
     done
     shopt -u nullglob
 
-    (( ${#files[@]} == 0 )) && { printf '|'; return 0; }
+    (( ${#files[@]} == 0 )) && return 0
 
-    # One `stat` for all of a clone's session files, not one per file: emit
-    # "<mtime> <path>" lines and keep the newest. A busy clone can have hundreds
-    # of session logs, and a stat-per-file fork was the bulk of `just status`'s
-    # cost. Session files are UUID-named jsonl (no spaces/newlines), so the path
-    # survives first-space splitting intact.
+    stat -f '%m %N' "${files[@]}" 2>/dev/null
+}
+
+# Newest session (by mtime) for any cwd inside a clone, as "<epoch>|<title>".
+# Both empty ("|") when the clone has no sessions. Title is read from that same
+# newest file — i.e. the session you most recently touched here.
+claude_newest_session() {
     local best=0 best_file="" line mtime file
     while IFS= read -r line; do
         mtime="${line%% *}"
         file="${line#* }"
         (( mtime > best )) && { best=$mtime; best_file=$file; }
-    done < <(stat -f '%m %N' "${files[@]}" 2>/dev/null)
+    done < <(claude_clone_session_files "$1")
 
     if (( best > 0 )); then
         printf '%s|%s' "$best" "$(claude_session_title "$best_file")"
