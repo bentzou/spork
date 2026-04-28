@@ -38,6 +38,18 @@ claude:
      trap 'bash "$rel" "$path" "$owner"' EXIT; \
      cd "$path" && claude
 
+# ID is a session id or the short id from `just log`. Claims that session's
+# clone for this shell (self-frees on exit), then resumes it in its launch dir.
+# Resume a Claude session from `just log` by its ID.
+[group('use')]
+restart id:
+    @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
+     found=$(./.spork/tools/find-session.sh "{{id}}") || exit 1; \
+     IFS=$'\t' read -r name cwd sid <<<"$found"; \
+     ./.spork/tools/claim-one.sh "$name" "$owner" >/dev/null || exit 1; \
+     trap 'bash "$rel" "$name" "$owner"' EXIT; \
+     cd "$cwd" && claude --resume "$sid"
+
 # One-line status per clone (no network).
 [group('manage')]
 status:

@@ -140,6 +140,7 @@ The recipes in `spork.just` wrap the scripts in `tools/`:
 | `just clone` | Create the next `<CLONE_PREFIX><N>` clone, wired to the mirror. No network. |
 | `just go` | Print the path of the first ready, unclaimed clone (for shell `cd`). |
 | `just claude` | Claim the first ready, unclaimed clone and open Claude in it. |
+| `just restart <id>` | Reopen a Claude session from `just log` by its ID, in its clone. |
 
 ## "Ready" definition
 
@@ -236,6 +237,25 @@ up front, before you copy an id.
 fewer (`just log 50`), or `all` for the full history (`just log all`). It
 reads the same sessions root as the status table's AGE/SESSION columns,
 overridable via `CLAUDE_PROJECTS_DIR`.
+
+### Resuming a session
+
+`just restart <id>` reopens a logged session where you left off. Copy the
+`ID` from `just log` (a prefix is fine — restart resolves it, and asks for
+more characters only if it's ambiguous):
+
+```
+$ just restart feb693a8
+```
+
+It finds the clone the session belongs to, claims it for your shell (the
+same self-freeing claim as `just claude`, released when you exit), and runs
+`claude --resume` from the session's original launch directory — so a
+monorepo subdir session reopens in that subdir, not the clone root. If that
+clone is currently in use by another live session, restart refuses rather
+than dropping a second Claude into it (the `(in use)` marker in `just log`
+flags those up front). The git state of the clone is left as-is: you return
+to whatever branch/working tree it's on now.
 
 ## Post-clone bootstrap
 
