@@ -132,6 +132,7 @@ The recipes in `spork.just` wrap the scripts in `tools/`:
 | Command | What it does |
 | --- | --- |
 | `just status` | One-line status per clone (no network). |
+| `just log [N]` | Recent Claude sessions across the pool, newest first (no network). |
 | `just sync` | Status table, then a background fetch/pull via the mirror. |
 | `just pull` | Foreground ff-merge of trunk in every clean clone. |
 | `just fetch` | Foreground fetch in every clone. |
@@ -202,6 +203,39 @@ REPO  SESSION  STATE  AGE  BRANCH
 - **BRANCH** — the clone's current branch. It's the trailing column (a
   branch name has no spaces, so it's safe to leave unpadded after the
   free-text SESSION title).
+
+## Session log
+
+Where `just status` shows the *current* state of each clone (one row per
+clone), `just log` shows recent *activity* (one row per Claude session)
+across the whole pool, newest first:
+
+```
+$ just log
+AGE   REP   ID         SESSION
+2m    p3    feb693a8   Create spec for image exports        (in use)
+1h    p2    686c1b22   Fix dark mode flash on initial page load
+3h    p2    a6060d87   Debug websocket reconnect backoff issue
+1d    p10   4082b292   Debug RSS feed parser issue
+…
+```
+
+A clone can appear on several rows — once per session you've worked in it,
+**including sessions you've already closed** (every session leaves its
+`*.jsonl` log behind). `AGE` is time since that session was last touched
+(red past 7 days); `REP` is the clone; `ID` is a short session-id handle
+(see `just restart` below); `SESSION` is its `aiTitle`, or `—` if it never
+got one.
+
+Rows whose clone has a live Claude session attached are marked **`(in use)`**
+(yellow on a terminal). You can't cleanly resume those — only one Claude can
+run per clone — so `just restart` will refuse them; the marker tells you that
+up front, before you copy an id.
+
+`just log` shows the 20 most recent by default. Pass a count for more or
+fewer (`just log 50`), or `all` for the full history (`just log all`). It
+reads the same sessions root as the status table's AGE/SESSION columns,
+overridable via `CLAUDE_PROJECTS_DIR`.
 
 ## Post-clone bootstrap
 

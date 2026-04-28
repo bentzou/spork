@@ -43,6 +43,12 @@ claude:
 status:
     @./.spork/tools/status-all.sh
 
+# N defaults to 20; pass a count or "all". Closed sessions are included.
+# Recent Claude sessions across the pool, newest first (no network).
+[group('manage')]
+log n="20":
+    @./.spork/tools/log-all.sh "{{n}}"
+
 # Pull trunk in every clean clone. Skips non-trunk branches and dirty trees.
 [group('manage')]
 pull:
