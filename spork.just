@@ -8,26 +8,10 @@
 # directory set to the workspace root, so the `./.spork/tools/...` paths resolve
 # regardless of where `just` is invoked.
 
-# Print the path of the first ready, unclaimed clone (pair with a shell alias that cds to it).
-[group('use')]
-go:
-    @./.spork/tools/pick-ready.sh
-
-# OWNER is a long-lived PID that keeps the claim held — pass your interactive
-# shell's $$ so a shell function can `cd` into the path and `release` it later,
-# with the claim owned by your terminal (it self-frees when the terminal closes)
-# rather than a transient just process. Bare `just claude` does this internally.
-# Claim the first ready, unclaimed clone for OWNER and print its path.
-[group('use')]
-claim owner:
-    @./.spork/tools/claim.sh "{{owner}}"
-
-# CLONE is a clone path or bare name; OWNER is the PID that claimed it. A no-op
-# if the clone was already reclaimed by someone else.
-# Release the claim on CLONE held by OWNER (pairs with `claim`).
-[group('use')]
-release clone owner:
-    @./.spork/tools/release.sh "{{clone}}" "{{owner}}"
+# Recipes are listed in source order (`--unsorted`); keep each group's listed
+# recipes alphabetical by name so the menu reads alphabetically. Private
+# plumbing recipes are hidden from the menu, so they sit next to what they
+# support rather than in alphabetical position.
 
 # $$ (this recipe's shell) owns the claim; if it dies the claim self-frees.
 # Claim the first ready, unclaimed clone, open Claude in it, and release on exit.
@@ -37,6 +21,29 @@ claude:
      path=$(./.spork/tools/claim.sh "$owner") || exit 1; \
      trap 'bash "$rel" "$path" "$owner"' EXIT; \
      cd "$path" && claude
+
+# OWNER is a long-lived PID that keeps the claim held — pass your interactive
+# shell's $$ so a shell function can `cd` into the path and `release` it later,
+# with the claim owned by your terminal (it self-frees when the terminal closes)
+# rather than a transient just process. Bare `just claude` does this internally.
+# Claim the first ready, unclaimed clone for OWNER and print its path.
+# Private: a plumbing recipe for shell functions (the `jc` alias), not the menu.
+[private]
+claim owner:
+    @./.spork/tools/claim.sh "{{owner}}"
+
+# CLONE is a clone path or bare name; OWNER is the PID that claimed it. A no-op
+# if the clone was already reclaimed by someone else.
+# Release the claim on CLONE held by OWNER (pairs with `claim`).
+# Private: a plumbing recipe for shell functions, not the menu.
+[private]
+release clone owner:
+    @./.spork/tools/release.sh "{{clone}}" "{{owner}}"
+
+# Print the path of the first ready, unclaimed clone (pair with a shell alias that cds to it).
+[group('use')]
+go:
+    @./.spork/tools/pick-ready.sh
 
 # ID is a session id or the short id from `just log`. Claims that session's
 # clone for this shell (self-frees on exit), then resumes it in its launch dir.
@@ -50,15 +57,15 @@ restart id:
      trap 'bash "$rel" "$name" "$owner"' EXIT; \
      cd "$cwd" && claude --resume "$sid"
 
-# One-line status per clone (no network).
+# Create the next clone using the local mirror (no network).
 [group('manage')]
-status:
-    @./.spork/tools/status-all.sh
+clone:
+    @./.spork/tools/clone.sh
 
-# N defaults to 20; pass a count or "all". Closed sessions are included.
+# Optional N: a count or "all" (defaults to 20). Closed sessions are included.
 # Recent Claude sessions across the pool, newest first (no network).
 [group('manage')]
-log n="20":
+log *n:
     @./.spork/tools/log-all.sh "{{n}}"
 
 # Pull trunk in every clean clone. Skips non-trunk branches and dirty trees.
@@ -66,10 +73,10 @@ log n="20":
 pull:
     @./.spork/tools/pull-all.sh
 
-# Create the next clone using the local mirror (no network).
+# One-line status per clone (no network).
 [group('manage')]
-clone:
-    @./.spork/tools/clone.sh
+status:
+    @./.spork/tools/status-all.sh
 
 # Fetch every clone (no merge, no skip rules).
 [private]
