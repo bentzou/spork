@@ -1,0 +1,12 @@
+# spork workspace config — copy to <workspace>/.spork/config and edit.
+#
+# ORIGIN_URL: only directories whose remote.origin.url matches this are
+#             treated as clones in this workspace.
+# TRUNK_BRANCH: branch name that triggers ff-merge in `just sync`. Any other
+#               branch is left alone (fetch-only).
+# CLONE_PREFIX: prefix `setup-clone` uses when picking the next clone name
+#               (e.g. `p` -> p1, p2, ... ; `clone-` -> clone-1, clone-2, ...).
+
+ORIGIN_URL=git@github.com:YOUR-ORG/YOUR-REPO.git
+TRUNK_BRANCH=main
+CLONE_PREFIX=p

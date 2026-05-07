@@ -1,0 +1,13 @@
+#!/bin/bash
+# post-clone — runs after `just setup-clone` finishes wiring up a new clone.
+# $1: absolute path of the new clone.
+#
+# Per-workspace: edit/replace this file for whatever the repo needs after a
+# fresh checkout. Delete the file (or `chmod -x`) to skip the hook entirely.
+
+set -euo pipefail
+
+clone="$1"
+echo "→ bun install in $clone"
+cd "$clone"
+bun install
