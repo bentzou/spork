@@ -4,6 +4,22 @@ Multi-clone workspace for a single git repo. Lets you keep a handful of
 checkouts of the same upstream side-by-side (e.g. one per agent, one per
 in-flight branch) without paying disk or network for redundant `.git` data.
 
+```
+$ just status
+REPO  BRANCH                       STATE  AGE
+p1    feat/admin-plan-editor       branch 21h
+p2    main                         ready
+p3    fix/auth-token-refresh       branch 5d
+p4    main                         local  12d   ← stale: AGE turns red after 7d
+p5    feat/wallet-abstraction      branch 1d
+p6    main                         ready
+```
+
+`STATE` shows what's blocking each clone (`ready` = clean and on
+trunk); `AGE` is the time since you last worked in that clone with
+Claude Code. At a glance you can see which clones are free, which are
+mid-flight, and which have gone cold.
+
 ## Concept
 
 Many parallel clones of the same repo cost a lot — each `.git` is hundreds
