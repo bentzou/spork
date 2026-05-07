@@ -19,10 +19,9 @@ clones' view of the world.
 ```
 <workspace>/
 ├── .spork/
-│   ├── config              # ORIGIN_URL / TRUNK_BRANCH / CLONE_PREFIX
+│   ├── config              # ORIGIN_URL / TRUNK_BRANCH / CLONE_PREFIX / POST_CLONE
 │   ├── runtime/            # mirror.git, sync.log, lock files (gitignored)
-│   ├── tools/              # symlink to spork repo's tools/, or a copy
-│   └── hooks/              # optional per-workspace bootstrap scripts
+│   └── tools/              # symlink to spork repo's tools/, or a copy
 ├── justfile                # workspace's just recipes (see examples/)
 ├── p1/                     # clones, named <CLONE_PREFIX><N>
 ├── p2/
@@ -132,27 +131,21 @@ REPO  BRANCH  STATE  AGE
   reflects when you last worked in each clone with it. If you don't, the
   column will just show `—` everywhere.
 
-## Hooks
+## Post-clone bootstrap
 
-Per-workspace bootstrap (e.g. `bun install`, `pnpm install`) goes in
-`.spork/hooks/`. Spork ships no defaults — drop in only what your repo
-needs.
-
-| Hook | When | Args |
-| --- | --- | --- |
-| `post-clone` | After `setup-clone` finishes the trunk checkout. | `$1` = absolute path of the new clone. |
-
-A hook is invoked iff it exists and is executable. Non-zero exit aborts
-the calling recipe but leaves the clone in place — fix the underlying
-issue and re-run the hook directly:
+Set `POST_CLONE` in `.spork/config` to run a command inside each new
+clone after `setup-clone` finishes the trunk checkout — e.g. installing
+dependencies. Spork ships no default; leave it empty to skip.
 
 ```sh
-.spork/hooks/post-clone /path/to/clone
+POST_CLONE='bun install'
+POST_CLONE='pnpm install && pnpm run prepare'
+POST_CLONE=./scripts/setup-new-clone.sh
 ```
 
-To disable a hook without deleting it: `chmod -x .spork/hooks/<name>`.
-
-See `examples/post-clone.example` for a working `bun install` hook.
+The value is `eval`'d in a subshell with cwd set to the new clone.
+Non-zero exit aborts `setup-clone` but leaves the clone on disk — fix
+the cause and re-run the command manually in that directory.
 
 ## Convenience shell shortcuts (optional)
 
@@ -176,8 +169,7 @@ spork/
 ├── tools/                  # the scripts behind the just recipes
 ├── examples/
 │   ├── config.example      # template for .spork/config
-│   ├── justfile.example    # spork-related just recipes
-│   └── post-clone.example  # example hook (bun install)
+│   └── justfile.example    # spork-related just recipes
 └── README.md
 ```
 
