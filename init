@@ -52,5 +52,5 @@ Next:
   1. \$EDITOR $local_dir/config       # set ORIGIN_URL / TRUNK_BRANCH / ...
   2. cd $workspace
   3. just sync-setup                  # creates the shared bare mirror
-  4. just setup-clone                 # create the first clone
+  4. just add-clone                 # create the first clone
 EOF

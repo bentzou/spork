@@ -1,12 +1,12 @@
 #!/bin/bash
-# setup-clone.sh — create the next <prefix><N> clone, sharing objects with the
+# add-clone.sh — create the next <prefix><N> clone, sharing objects with the
 # mirror.
 #
 # Picks N = highest-existing-<prefix><N> + 1, where <prefix> comes from
-# CLONE_PREFIX in .spork/config (default `p`). Inits a new clone wired up to
-# the mirror the same way setup-mirror.sh wires existing clones, and checks
-# out the trunk branch. Skips network — all objects come from the local
-# mirror.
+# CLONE_PREFIX in .spork.local/config (default `p`). Inits a new clone wired
+# up to the mirror the same way setup-mirror.sh wires existing clones, and
+# checks out the trunk branch. Skips network — all objects come from the
+# local mirror.
 
 set -euo pipefail
 # shellcheck source=_lib.sh
