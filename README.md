@@ -91,35 +91,6 @@ The recipes in `examples/justfile.example` wrap the scripts in `tools/`:
 | `just clone` | Create the next `<CLONE_PREFIX><N>` clone, wired to the mirror. No network. |
 | `just go` | Print the path of the first ready clone (for shell `cd`). |
 
-### Customizing the recipe menu
-
-`examples/justfile.example` lists every recipe alphabetically; tailor
-your workspace's `justfile` to taste:
-
-- **Hide internal recipes** with `[private]` so `just --list` doesn't
-  surface them. Useful for `fetch` / `sync-setup` / `sync` once
-  everything is set up.
-- **Control ordering** with `just --list --unsorted` from a `default`
-  recipe, then arrange recipes in source order:
-  ```
-  [private]
-  default:
-      @just --list --unsorted
-  ```
-- **Group recipes** with `[group('name')]` for a separator (and a
-  header) between buckets. Example output:
-  ```
-  Available recipes:
-      [use]
-      claude # ...
-      go     # ...
-
-      [manage]
-      status # ...
-      pull   # ...
-      clone  # ...
-  ```
-
 ## "Ready" definition
 
 A clone is **ready** when:
