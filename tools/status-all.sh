@@ -41,10 +41,19 @@ claude_last_epoch() {
 
 status_for() {
     local path="$1"
-    local branch dirty_count ahead behind state
+    local branch dirty_count ahead behind state porcelain
 
     branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
-    dirty_count=$(git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+
+    # `git status --porcelain` exits non-zero when the repo can't read its
+    # objects (bad alternates, missing HEAD object, corrupted store).
+    # Surface that as `broken` rather than silently reporting clean.
+    if ! porcelain=$(git -C "$path" status --porcelain 2>/dev/null); then
+        echo "${branch}|broken"
+        return
+    fi
+    dirty_count=0
+    [[ -n "$porcelain" ]] && dirty_count=$(printf '%s\n' "$porcelain" | wc -l | tr -d ' ')
 
     ahead=0
     behind=0
@@ -138,6 +147,7 @@ state_color() {
         ready)              printf '%s' "$c_green"  ;;
         branch)             printf '%s' "$c_cyan"   ;;
         local|pull|push)    printf '%s' "$c_yellow" ;;
+        broken)             printf '%s' "$c_red"    ;;
         *)                  printf '%s' ''          ;;
     esac
 }
