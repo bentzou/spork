@@ -117,7 +117,7 @@ for path in "${paths[@]}"; do
     (( ${#age}    > age_width ))    && age_width=${#age}
 done
 
-printf '%-*s  %-*s  %-*s %s\n' \
+printf '%-*s  %-*s  %-*s   %s\n' \
     "$repo_width" "REPO" \
     "$branch_width" "BRANCH" \
     "$state_width" "STATE" "AGE"
@@ -176,7 +176,7 @@ print_row() {
     # Re-wrap just the non-space prefix in color so trailing padding stays plain.
     local name_tail="${name_pad:${#name}}"
     local state_tail="${state_pad:${#state}}"
-    printf '%s%s%s%s  %-*s  %s%s%s%s %s%s%s\n' \
+    printf '%s%s%s%s  %-*s  %s%s%s%s   %s%s%s\n' \
         "$sc" "$name" "$c_reset" "$name_tail" \
         "$branch_width" "${branch_cells[$i]}" \
         "$sc" "$state" "$c_reset" "$state_tail" \
