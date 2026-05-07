@@ -24,8 +24,8 @@ sync:
     @( ./.spork/tools/sync-bg.sh </dev/null >/dev/null 2>&1 & ) </dev/null
 
 # Create the next clone using the local mirror (no network).
-add-clone:
-    @./.spork/tools/add-clone.sh
+clone:
+    @./.spork/tools/clone.sh
 
 # Print the path of the first ready clone (pair with a shell alias that cds to it).
 go:

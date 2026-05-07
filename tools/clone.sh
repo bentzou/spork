@@ -1,5 +1,5 @@
 #!/bin/bash
-# add-clone.sh — create the next <prefix><N> clone, sharing objects with the
+# clone.sh — create the next <prefix><N> clone, sharing objects with the
 # mirror.
 #
 # Picks N = highest-existing-<prefix><N> + 1, where <prefix> comes from
