@@ -24,7 +24,7 @@ for path in "$BASE_DIR/$CLONE_PREFIX"*/; do
     name=$(basename "$path")
     if [[ "$name" =~ ^${CLONE_PREFIX}([0-9]+)$ ]]; then
         n="${BASH_REMATCH[1]}"
-        (( n > max )) && max=n
+        (( n > max )) && max=$n
     fi
 done
 shopt -u nullglob
