@@ -183,10 +183,10 @@ print_row() {
         "$ac" "$age" "$c_reset"
 }
 
-for i in "${active_idx[@]}"; do print_row "$i" "${age_cells[$i]}"; done
+for i in ${active_idx[@]+"${active_idx[@]}"}; do print_row "$i" "${age_cells[$i]}"; done
 # Ready rows: no AGE (the question is "is anything stale" — already-ready
 # repos are not the answer).
-for i in "${ready_idx[@]}"; do print_row "$i" ""; done
+for i in ${ready_idx[@]+"${ready_idx[@]}"}; do print_row "$i" ""; done
 
 # Join "$@" with " · ".
 join_dot() {
