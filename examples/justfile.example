@@ -1,40 +1,32 @@
-# spork recipes — copy into your workspace's justfile (or merge with an
-# existing one). Paths assume the standard install where .spork is a
-# symlink to the spork repo.
+# Workspace justfile — imports spork's shared recipes and adds anything
+# workspace-specific. The shared recipes live in `.spork/spork.just` and update
+# when you pull the spork repo; keep your own recipes and overrides below.
+#
+# `set allow-duplicate-recipes` lets a recipe here override an imported one of
+# the same name (used by the commented example below).
 
-# One-line status per clone (no network).
-status:
-    @./.spork/tools/status-all.sh
+set shell := ["bash", "-uc"]
+set allow-duplicate-recipes := true
 
-# Pull trunk in every clean clone. Skips non-trunk branches and dirty trees.
-pull:
-    @./.spork/tools/pull-all.sh
+import '.spork/spork.just'
 
-# Fetch every clone (no merge, no skip rules).
-fetch:
-    @./.spork/tools/pull-all.sh --fetch-only
+# Bare `just` lists recipes in source order.
+[private]
+default:
+    @just --list --unsorted
 
-# One-time: create the shared bare mirror and link each clone to it.
-sync-setup:
-    @./.spork/tools/setup-mirror.sh
-
-# Status table, then background fetch/pull via the shared mirror.
-sync:
-    @./.spork/tools/status-all.sh
-    @( ./.spork/tools/sync-bg.sh </dev/null >/dev/null 2>&1 & ) </dev/null
-
-# Create the next clone using the local mirror (no network).
-clone:
-    @./.spork/tools/clone.sh
-
-# Print the path of the first ready, unclaimed clone (pair with a shell alias that cds to it).
-go:
-    @./.spork/tools/pick-ready.sh
-
-# Claim the first ready, unclaimed clone, open Claude in it, and release on exit.
-# $$ (this recipe's shell) owns the claim; if it dies the claim self-frees.
-claude:
-    @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
-     path=$(./.spork/tools/claim.sh "$owner") || exit 1; \
-     trap 'bash "$rel" "$path" "$owner"' EXIT; \
-     cd "$path" && claude
+# --- Workspace-specific recipes / overrides go below ---
+#
+# Example: if your app lives in a monorepo subdir, override `claude`/`go` to
+# target it (everything else is inherited from .spork/spork.just):
+#
+# [group('use')]
+# claude:
+#     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
+#      path=$(./.spork/tools/claim.sh "$owner") || exit 1; \
+#      trap 'bash "$rel" "$path" "$owner"' EXIT; \
+#      cd "$path/SUBDIR" && claude
+#
+# [group('use')]
+# go:
+#     @path=$(./.spork/tools/pick-ready.sh) && echo "$path/SUBDIR"

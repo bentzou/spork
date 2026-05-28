@@ -39,8 +39,11 @@ else
 fi
 
 if [[ -f "$workspace/justfile" ]]; then
-    echo "  exists  $workspace/justfile (merge spork recipes from"
-    echo "          .spork/examples/justfile.example if needed)"
+    echo "  exists  $workspace/justfile"
+    if ! grep -q "import '.spork/spork.just'" "$workspace/justfile" 2>/dev/null; then
+        echo "          (add \`import '.spork/spork.just'\` to pull in spork's"
+        echo "           recipes — see .spork/examples/justfile.example)"
+    fi
 else
     cp "$spork_dir/examples/justfile.example" "$workspace/justfile"
     echo "  created $workspace/justfile"
