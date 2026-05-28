@@ -16,6 +16,12 @@ set -uo pipefail
 # shellcheck source=_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
+# This worker is spawned detached from the terminal, but ssh reads passphrase
+# prompts from /dev/tty directly — so a missing/locked key would hang the fetch
+# invisibly instead of failing. BatchMode=yes makes ssh fail fast; the error is
+# then captured and logged like any other fetch failure.
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes"
+
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     # Another sync is running. Exit silently.
     exit 0
