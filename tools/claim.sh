@@ -33,8 +33,8 @@ while IFS= read -r path; do
 done < <(spork_clones)
 
 if (( saw_ready )); then
-    echo "All ready clones are in use. Run \`just clone\` for another, or \`just status\`." >&2
+    echo "No open clones — every ready one is in use. Run \`just clone\` for another, or \`just status\`." >&2
 else
-    echo "No ready clones in $BASE_DIR (try \`just status\`)." >&2
+    echo "No open clones in $BASE_DIR (try \`just status\`)." >&2
 fi
 exit 1
