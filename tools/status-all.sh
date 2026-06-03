@@ -20,27 +20,9 @@ format_relative() {
     fi
 }
 
-# Newest mtime (epoch) across Claude session jsonl files for any cwd inside
-# this repo. Project dirs encode the cwd as the absolute path with `/` → `-`.
-# Subdir sessions count too (e.g. `<repo>-src-foo`). Empty string if none.
-claude_last_epoch() {
-    local repo_path="${1%/}"
-    local encoded="${repo_path//\//-}"
-    local root="$HOME/.claude/projects"
-    [[ -d "$root" ]] || return 0
-
-    local best=0 dir f mtime
-    shopt -s nullglob
-    for dir in "$root/$encoded" "$root/$encoded"-*; do
-        [[ -d "$dir" ]] || continue
-        for f in "$dir"/*.jsonl; do
-            mtime=$(stat -f %m "$f" 2>/dev/null || echo 0)
-            (( mtime > best )) && best=$mtime
-        done
-    done
-    shopt -u nullglob
-    (( best > 0 )) && printf '%s' "$best"
-}
+# Longest SESSION title rendered before truncation with an ellipsis. The column
+# is last, so this only bounds row length — it never affects other columns.
+SESSION_MAX=56
 
 status_for() {
     local path="$1"
@@ -107,25 +89,36 @@ branch_width=6  # min for "BRANCH" header
 state_width=5   # min for "STATE" header
 age_width=3     # min for "AGE" header
 now=$(date +%s)
-declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=()
+declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
 for path in "${paths[@]}"; do
     name=$(basename "$path")
     info=$(status_for "$path")
     branch="${info%%|*}"
     state="${info#*|}"
 
-    last_epoch=$(claude_last_epoch "$path")
+    # "<epoch>|<title>" for the most recently touched session in this clone;
+    # both halves empty when there are none. Split on the FIRST pipe only —
+    # epoch never contains one, but a title might.
+    session_info=$(claude_newest_session "$path")
+    last_epoch="${session_info%%|*}"
+    session="${session_info#*|}"
+
     if [[ -n "$last_epoch" ]]; then
         age="$(format_relative $(( now - last_epoch )))"
     else
         age="—"
     fi
 
+    # Title shares AGE's "—" placeholder when this clone has no session.
+    [[ -z "$session" ]] && session="—"
+    (( ${#session} > SESSION_MAX )) && session="${session:0:SESSION_MAX-1}…"
+
     name_cells+=("$name")
     branch_cells+=("$branch")
     state_cells+=("$state")
     age_cells+=("$age")
     last_epoch_cells+=("$last_epoch")
+    session_cells+=("$session")
 
     (( ${#name}   > repo_width ))   && repo_width=${#name}
     (( ${#branch} > branch_width )) && branch_width=${#branch}
@@ -133,10 +126,11 @@ for path in "${paths[@]}"; do
     (( ${#age}    > age_width ))    && age_width=${#age}
 done
 
-printf '%-*s  %-*s  %-*s   %s\n' \
+printf '%-*s  %-*s  %-*s   %-*s  %s\n' \
     "$repo_width" "REPO" \
     "$branch_width" "BRANCH" \
-    "$state_width" "STATE" "AGE"
+    "$state_width" "STATE" \
+    "$age_width" "AGE" "SESSION"
 
 active_idx=()
 open_idx=()
@@ -181,7 +175,7 @@ age_color() {
 # Print a row. Pads first so column widths line up; color codes don't count
 # toward width, so they're applied only to the visible token.
 print_row() {
-    local i="$1" age="$2"
+    local i="$1" age="$2" session="$3"
     local state="${state_cells[$i]}"
     local sc; sc=$(state_color "$state")
     local ac; ac=$(age_color "${last_epoch_cells[$i]}")
@@ -192,17 +186,25 @@ print_row() {
     # Re-wrap just the non-space prefix in color so trailing padding stays plain.
     local name_tail="${name_pad:${#name}}"
     local state_tail="${state_pad:${#state}}"
-    printf '%s%s%s%s  %-*s  %s%s%s%s   %s%s%s\n' \
+    # SESSION is the trailing free-text column: pad AGE up to its width and
+    # append the title only when present (open rows pass none, leaving no
+    # trailing whitespace). As the last field it needs no padding of its own.
+    local tail=""
+    if [[ -n "$session" ]]; then
+        local age_pad; printf -v age_pad '%-*s' "$age_width" "$age"
+        tail="${age_pad:${#age}}  $session"
+    fi
+    printf '%s%s%s%s  %-*s  %s%s%s%s   %s%s%s%s\n' \
         "$sc" "$name" "$c_reset" "$name_tail" \
         "$branch_width" "${branch_cells[$i]}" \
         "$sc" "$state" "$c_reset" "$state_tail" \
-        "$ac" "$age" "$c_reset"
+        "$ac" "$age" "$c_reset" "$tail"
 }
 
-for i in ${active_idx[@]+"${active_idx[@]}"}; do print_row "$i" "${age_cells[$i]}"; done
-# Open clones go last, with no AGE: they're the answer to "what can I grab",
-# and a free clone's last-touched time isn't decision-relevant.
-for i in ${open_idx[@]+"${open_idx[@]}"}; do print_row "$i" ""; done
+for i in ${active_idx[@]+"${active_idx[@]}"}; do print_row "$i" "${age_cells[$i]}" "${session_cells[$i]}"; done
+# Open clones go last, with no AGE or SESSION: they're the answer to "what can I
+# grab", and a free clone's last-touched time and title aren't decision-relevant.
+for i in ${open_idx[@]+"${open_idx[@]}"}; do print_row "$i" "" ""; done
 
 # Join "$@" with " · ".
 join_dot() {

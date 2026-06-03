@@ -47,6 +47,10 @@ make_clone() {
 make_workspace() {
     local n_ready="$1" i
     WS=$(mktemp -d)
+    # Isolate the Claude session source so AGE/SESSION are hermetic (no real
+    # ~/.claude state leaks in). Empty until a test writes a fixture log.
+    export CLAUDE_PROJECTS_DIR="$WS/projects"
+    mkdir -p "$CLAUDE_PROJECTS_DIR"
     ln -s "$SPORK_REPO" "$WS/.spork"
     mkdir -p "$WS/.spork.local"
     cat > "$WS/.spork.local/config" <<EOF
@@ -60,6 +64,15 @@ EOF
 }
 
 status() { ( cd "$WS" && ./.spork/tools/status-all.sh ); }
+# Write an ai-title session log for clone <name>, at the project dir Claude Code
+# would use (the clone's absolute cwd with `/` → `-`).
+session_for() {
+    local name="$1" title="$2" enc
+    enc="${WS//\//-}-$name"
+    mkdir -p "$CLAUDE_PROJECTS_DIR/$enc"
+    printf '{"type":"ai-title","aiTitle":"%s","sessionId":"sid"}\n' "$title" \
+        > "$CLAUDE_PROJECTS_DIR/$enc/s.jsonl"
+}
 # STATE word for clone <name> = 2nd-to-last field of its row (AGE may be blank,
 # so read STATE positionally from the front: REPO BRANCH STATE [AGE]). STATE can
 # be two words ("in use"), so reconstruct it as everything between BRANCH and AGE.
@@ -105,6 +118,24 @@ release_clone p2 "$a" >/dev/null
 check "release ready clone -> open again" "open" "$(state_of p2)"
 release_clone p3 "$a" >/dev/null
 check "release dirty clone -> local again" "local" "$(state_of p3)"
+
+# ---------------------------------------------------------------------------
+echo
+echo "status: SESSION column shows the latest title, truncated, blank for open"
+
+# pX is on a feature branch (active) -> its title renders, capped at 56 cols.
+long="Investigate the credit top up flow and reconcile ledger entries across tenants"
+session_for pX "$long"
+out=$(status)
+trunc="${long:0:55}…"   # SESSION_MAX-1 chars + ellipsis
+check "active clone shows truncated title" "1" "$(grep -Fc -- "$trunc" <<<"$out")"
+check "untruncated title is not shown"     "0" "$(grep -Fc -- "$long"  <<<"$out")"
+
+# p2 is open (ready, unclaimed) -> no SESSION even with a log on disk, matching
+# how AGE is blanked for open clones.
+session_for p2 "Stale title on an open clone"
+out=$(status)
+check "open clone shows no session" "0" "$(grep -Fc -- "Stale title on an open clone" <<<"$out")"
 
 # ---------------------------------------------------------------------------
 echo

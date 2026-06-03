@@ -6,19 +6,23 @@ in-flight branch) without paying disk or network for redundant `.git` data.
 
 ```
 $ just status
-REPO  BRANCH                       STATE  AGE
-p1    feat/admin-plan-editor       branch 21h
+REPO  BRANCH                       STATE  AGE   SESSION
+p1    feat/admin-plan-editor       branch 21h   Build admin plan composer
+p3    fix/auth-token-refresh       branch 5d    Refresh auth tokens on 401
+p4    main                         local  12d   Spike: wallet ledger schema   ← stale: AGE turns red after 7d
+p5    feat/wallet-abstraction      branch 1d    Abstract the wallet provider
 p2    main                         ready
-p3    fix/auth-token-refresh       branch 5d
-p4    main                         local  12d   ← stale: AGE turns red after 7d
-p5    feat/wallet-abstraction      branch 1d
 p6    main                         ready
 ```
 
 `STATE` shows what's blocking each clone (`ready` = clean and on
 trunk); `AGE` is the time since you last worked in that clone with
-Claude Code. At a glance you can see which clones are free, which are
-mid-flight, and which have gone cold.
+Claude Code; `SESSION` is the title of that most-recent Claude session,
+so you can tell at a glance *what* each in-flight clone was for — not
+just that it's busy. At a glance you can see which clones are free,
+which are mid-flight, and which have gone cold. (Ready clones sort to
+the bottom with no AGE or SESSION — a free clone's history isn't
+decision-relevant.)
 
 ## Concept
 
@@ -171,7 +175,7 @@ The owner PID is the shell/session that lives for the duration of the work
 ## Status table columns
 
 ```
-REPO  BRANCH  STATE  AGE
+REPO  BRANCH  STATE  AGE  SESSION
 ```
 
 - **STATE** — single word per clone:
@@ -188,6 +192,13 @@ REPO  BRANCH  STATE  AGE
   This column assumes you use [Claude Code](https://claude.ai/code) and
   reflects when you last worked in each clone with it. If you don't, the
   column will just show `—` everywhere.
+- **SESSION** — title of that same most-recent session: the `aiTitle`
+  Claude Code records for it (the auto-generated name shown in its
+  picker). Trailing, free-text, and truncated past 56 columns. Blank for
+  ready clones; `—` when the clone has no session. Lets you read the
+  table as "*p3* is mid-flight on *fix/auth* — it's the *token refresh*
+  work" without opening anything. Set `CLAUDE_PROJECTS_DIR` to point the
+  AGE/SESSION lookups at a non-default sessions root.
 
 ## Post-clone bootstrap
 
