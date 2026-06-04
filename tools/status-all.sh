@@ -152,7 +152,7 @@ for i in "${!paths[@]}"; do
     (( ${#age}     > age_width ))      && age_width=${#age}
 done
 
-printf '%-*s  %-*s  %-*s   %-*s  %s\n' \
+printf '%-*s   %-*s   %-*s   %-*s   %s\n' \
     "$repo_width" "REPO" \
     "$session_width" "SESSION" \
     "$state_width" "STATE" \
@@ -225,7 +225,7 @@ print_row() {
     local sess_pad=$(( session_width - ${#session} ))
     (( sess_pad < 0 )) && sess_pad=0
 
-    printf '%s%s%s%s  %s%*s  %s%s%s%s   %s%s%s%s  %s\n' \
+    printf '%s%s%s%s   %s%*s   %s%s%s%s   %s%s%s%s   %s\n' \
         "$sc" "$name" "$c_reset" "$name_tail" \
         "$session" "$sess_pad" "" \
         "$sc" "$state" "$c_reset" "$state_tail" \
