@@ -63,6 +63,9 @@ git -C "$target" checkout -q --no-track -b "$TRUNK_BRANCH" "origin/$TRUNK_BRANCH
 git -C "$target" config "branch.$TRUNK_BRANCH.remote" origin
 git -C "$target" config "branch.$TRUNK_BRANCH.merge"  "refs/heads/$TRUNK_BRANCH"
 
+# Make `just status` fast on this clone from the first run (see _lib.sh).
+ensure_status_perf "$target"
+
 # Optional per-workspace bootstrap (POST_CLONE in .spork/config) — e.g.
 # `bun install`, `pnpm install && pnpm run prepare`. Runs in the new clone.
 if [[ -n "${POST_CLONE:-}" ]]; then

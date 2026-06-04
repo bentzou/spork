@@ -53,6 +53,23 @@ fi
 
 mkdir -p "$RUNTIME_DIR"
 
+# Per-repo git settings that keep `just status` cheap on a large worktree.
+# core.untrackedCache caches the untracked-file scan, so `git status` does an
+# incremental check against cached directory mtimes instead of a full-tree
+# lstat sweep — the dominant cost when probing many clones at once (a ~8k-file
+# tree drops from ~40ms to ~8ms, and the gap widens under the parallel
+# contention of statusing every clone). Idempotent: only writes when unset, so
+# it's safe to call on every clone on every run. fsmonitor would be faster
+# still but needs a persistent per-repo daemon — a poor trade for an occasional
+# status command, so it's deliberately left off.
+ensure_status_perf() {
+    local path="$1"
+    # Only write when unset, so an explicit per-clone override (true or false)
+    # is left alone.
+    [[ -n "$(git -C "$path" config --get core.untrackedCache 2>/dev/null)" ]] && return 0
+    git -C "$path" config core.untrackedCache true 2>/dev/null || true
+}
+
 spork_clones() {
     local path url
     shopt -s nullglob
