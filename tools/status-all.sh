@@ -90,19 +90,36 @@ session_width=7  # min for "SESSION" header
 state_width=5    # min for "STATE" header
 age_width=3      # min for "AGE" header
 now=$(date +%s)
-declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
-for path in "${paths[@]}"; do
-    name=$(basename "$path")
-    info=$(status_for "$path")
-    branch="${info%%|*}"
-    state="${info#*|}"
 
-    # "<epoch>|<title>" for the most recently touched session in this clone;
-    # both halves empty when there are none. Split on the FIRST pipe only —
-    # epoch never contains one, but a title might.
+# Each clone's probes (git status over a large tree, session-log stat) are
+# independent and dominated by syscalls, so run them in parallel — one worker
+# per clone writing a record to a temp file keyed by index. Wall time drops
+# from the sum of per-clone probes to the slowest single clone. Presentation
+# (widths, color, ordering) stays serial below, off the collected records.
+emit_clone() {
+    # Four newline-delimited fields: branch, state, last_epoch, session_title.
+    # status_for yields "branch|state"; claude_newest_session yields
+    # "<epoch>|<title>". Titles are single-line, so newline framing needs no
+    # escaping and the reader can split fields by line.
+    local path="$1" info session_info
+    info=$(status_for "$path")
     session_info=$(claude_newest_session "$path")
-    last_epoch="${session_info%%|*}"
-    session="${session_info#*|}"
+    printf '%s\n%s\n%s\n%s\n' \
+        "${info%%|*}" "${info#*|}" "${session_info%%|*}" "${session_info#*|}"
+}
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/spork-status.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+for i in "${!paths[@]}"; do
+    emit_clone "${paths[$i]}" >"$tmp/$i" &
+done
+wait
+
+declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
+for i in "${!paths[@]}"; do
+    name=$(basename "${paths[$i]}")
+    # Read back the four fields this clone's worker wrote, in order.
+    { IFS= read -r branch; IFS= read -r state; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
 
     if [[ -n "$last_epoch" ]]; then
         age="$(format_relative $(( now - last_epoch )))"
