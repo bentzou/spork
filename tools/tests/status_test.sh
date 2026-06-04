@@ -73,18 +73,34 @@ session_for() {
     printf '{"type":"ai-title","aiTitle":"%s","sessionId":"sid"}\n' "$title" \
         > "$CLAUDE_PROJECTS_DIR/$enc/s.jsonl"
 }
-# STATE word for clone <name> = 2nd-to-last field of its row (AGE may be blank,
-# so read STATE positionally from the front: REPO BRANCH STATE [AGE]). STATE can
-# be two words ("in use"), so reconstruct it as everything between BRANCH and AGE.
-state_of() {
-    status | awk -v n="$1" '
-        $1==n {
-            s=$3
-            # Join a possible 2nd STATE word ("in use") when present.
-            if ($4!="" && $4 !~ /^[0-9]+[smhd]$/ && $4!="—") s=s" "$4
-            print s; exit
+# Value of column <col> for clone <name>, parsed by the header's character
+# columns rather than by whitespace fields. Robust to column order and to cells
+# that contain spaces (SESSION titles, the two-word "in use" state). Relies on
+# captured (non-tty) output, which carries no color escapes to shift offsets.
+field_of() {
+    local col="$1" name="$2"
+    status | awk -v col="$col" -v repo="$name" '
+        function trim(s){ gsub(/^ +| +$/, "", s); return s }
+        NR==1 {
+            i = 1
+            while (match(substr($0, i), /[^ ]+/)) {
+                start = i + RSTART - 1
+                labels[++ncol] = substr($0, start, RLENGTH)
+                starts[ncol] = start
+                i = start + RLENGTH
+            }
+            next
+        }
+        {
+            if (trim(substr($0, starts[1], starts[2] - starts[1])) != repo) next
+            for (k = 1; k <= ncol; k++) if (labels[k] == col) {
+                len = (k < ncol) ? starts[k+1] - starts[k] : length($0) - starts[k] + 1
+                print trim(substr($0, starts[k], len)); exit
+            }
+            exit
         }'
 }
+state_of() { field_of STATE "$1"; }
 
 # Claim/release a clone by name via the sourced helpers (claim.sh only grabs
 # *ready* clones, so use try_claim directly to occupy a dirty one too).
@@ -130,12 +146,17 @@ out=$(status)
 trunc="${long:0:55}…"   # SESSION_MAX-1 chars + ellipsis
 check "active clone shows truncated title" "1" "$(grep -Fc -- "$trunc" <<<"$out")"
 check "untruncated title is not shown"     "0" "$(grep -Fc -- "$long"  <<<"$out")"
+# SESSION and BRANCH occupy their swapped columns: SESSION mid-table, BRANCH last.
+check "SESSION column holds the title"     "$trunc"   "$(field_of SESSION pX)"
+check "BRANCH is now the trailing column"  "feature"  "$(field_of BRANCH pX)"
 
 # p2 is open (ready, unclaimed) -> no SESSION even with a log on disk, matching
 # how AGE is blanked for open clones.
 session_for p2 "Stale title on an open clone"
 out=$(status)
-check "open clone shows no session" "0" "$(grep -Fc -- "Stale title on an open clone" <<<"$out")"
+check "open clone shows no session"        "0" "$(grep -Fc -- "Stale title on an open clone" <<<"$out")"
+check "open clone SESSION cell is blank"   ""  "$(field_of SESSION p2)"
+check "open clone still shows its branch"  "main" "$(field_of BRANCH p2)"
 
 # ---------------------------------------------------------------------------
 echo

@@ -6,13 +6,13 @@ in-flight branch) without paying disk or network for redundant `.git` data.
 
 ```
 $ just status
-REPO  BRANCH                       STATE  AGE   SESSION
-p1    feat/admin-plan-editor       branch 21h   Build admin plan composer
-p3    fix/auth-token-refresh       branch 5d    Refresh auth tokens on 401
-p4    main                         local  12d   Spike: wallet ledger schema   ← stale: AGE turns red after 7d
-p5    feat/wallet-abstraction      branch 1d    Abstract the wallet provider
-p2    main                         ready
-p6    main                         ready
+REPO  SESSION                      STATE  AGE   BRANCH
+p1    Build admin plan composer    branch 21h   feat/admin-plan-editor
+p3    Refresh auth tokens on 401   branch 5d    fix/auth-token-refresh
+p4    Spike: wallet ledger schema  local  12d   main   ← stale: AGE turns red after 7d
+p5    Abstract the wallet provider branch 1d    feat/wallet-abstraction
+p2                                 ready        main
+p6                                 ready        main
 ```
 
 `STATE` shows what's blocking each clone (`ready` = clean and on
@@ -175,7 +175,7 @@ The owner PID is the shell/session that lives for the duration of the work
 ## Status table columns
 
 ```
-REPO  BRANCH  STATE  AGE  SESSION
+REPO  SESSION  STATE  AGE  BRANCH
 ```
 
 - **STATE** — single word per clone:
@@ -194,11 +194,14 @@ REPO  BRANCH  STATE  AGE  SESSION
   column will just show `—` everywhere.
 - **SESSION** — title of that same most-recent session: the `aiTitle`
   Claude Code records for it (the auto-generated name shown in its
-  picker). Trailing, free-text, and truncated past 56 columns. Blank for
-  ready clones; `—` when the clone has no session. Lets you read the
-  table as "*p3* is mid-flight on *fix/auth* — it's the *token refresh*
-  work" without opening anything. Set `CLAUDE_PROJECTS_DIR` to point the
-  AGE/SESSION lookups at a non-default sessions root.
+  picker). Free-text, truncated past 56 columns. Blank for ready clones;
+  `—` when the clone has no session. Lets you read the table as "*p3* is
+  mid-flight on the *token refresh* work" without opening anything. Set
+  `CLAUDE_PROJECTS_DIR` to point the AGE/SESSION lookups at a non-default
+  sessions root.
+- **BRANCH** — the clone's current branch. It's the trailing column (a
+  branch name has no spaces, so it's safe to leave unpadded after the
+  free-text SESSION title).
 
 ## Post-clone bootstrap
 

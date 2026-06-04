@@ -82,12 +82,13 @@ if (( ${#paths[@]} == 0 )); then
     exit 0
 fi
 
-# Compute every cell up front so column widths align (AGE goes last, STATE
-# has variable detail and must be padded too).
-repo_width=4    # min for "REPO" header
-branch_width=6  # min for "BRANCH" header
-state_width=5   # min for "STATE" header
-age_width=3     # min for "AGE" header
+# Compute every cell up front so column widths align. BRANCH is the trailing,
+# free-text-safe column (no spaces), so it needs no width; every column before
+# it is padded.
+repo_width=4     # min for "REPO" header
+session_width=7  # min for "SESSION" header
+state_width=5    # min for "STATE" header
+age_width=3      # min for "AGE" header
 now=$(date +%s)
 declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
 for path in "${paths[@]}"; do
@@ -109,9 +110,17 @@ for path in "${paths[@]}"; do
         age="—"
     fi
 
-    # Title shares AGE's "—" placeholder when this clone has no session.
-    [[ -z "$session" ]] && session="—"
-    (( ${#session} > SESSION_MAX )) && session="${session:0:SESSION_MAX-1}…"
+    # Open clones are the "what can I grab" answer: their last-touched time and
+    # session title aren't decision-relevant, so blank both (BRANCH still shows
+    # trunk). Active clones get AGE's "—" placeholder when untitled, and titles
+    # are capped at SESSION_MAX.
+    if [[ "$state" == "open" ]]; then
+        age=""
+        session=""
+    else
+        [[ -z "$session" ]] && session="—"
+        (( ${#session} > SESSION_MAX )) && session="${session:0:SESSION_MAX-1}…"
+    fi
 
     name_cells+=("$name")
     branch_cells+=("$branch")
@@ -120,17 +129,17 @@ for path in "${paths[@]}"; do
     last_epoch_cells+=("$last_epoch")
     session_cells+=("$session")
 
-    (( ${#name}   > repo_width ))   && repo_width=${#name}
-    (( ${#branch} > branch_width )) && branch_width=${#branch}
-    (( ${#state}  > state_width ))  && state_width=${#state}
-    (( ${#age}    > age_width ))    && age_width=${#age}
+    (( ${#name}    > repo_width ))    && repo_width=${#name}
+    (( ${#session} > session_width )) && session_width=${#session}
+    (( ${#state}   > state_width ))   && state_width=${#state}
+    (( ${#age}     > age_width ))      && age_width=${#age}
 done
 
 printf '%-*s  %-*s  %-*s   %-*s  %s\n' \
     "$repo_width" "REPO" \
-    "$branch_width" "BRANCH" \
+    "$session_width" "SESSION" \
     "$state_width" "STATE" \
-    "$age_width" "AGE" "SESSION"
+    "$age_width" "AGE" "BRANCH"
 
 active_idx=()
 open_idx=()
@@ -172,39 +181,44 @@ age_color() {
     fi
 }
 
-# Print a row. Pads first so column widths line up; color codes don't count
-# toward width, so they're applied only to the visible token.
+# Print one row in REPO · SESSION · STATE · AGE · BRANCH order. Each column but
+# the trailing BRANCH is padded to its width; color codes don't count toward
+# width, so they wrap only the visible token. SESSION is padded by character
+# count rather than printf's byte width, so 1-column multibyte glyphs (e.g. the
+# "—" common in session titles) stay aligned. Cells already hold exactly what's
+# shown — open clones carry a blank AGE/SESSION — so this just renders them.
 print_row() {
-    local i="$1" age="$2" session="$3"
-    local state="${state_cells[$i]}"
-    local sc; sc=$(state_color "$state")
-    local ac; ac=$(age_color "${last_epoch_cells[$i]}")
+    local i="$1"
     local name="${name_cells[$i]}"
-    local name_pad state_pad
+    local session="${session_cells[$i]}"
+    local state="${state_cells[$i]}"
+    local age="${age_cells[$i]}"
+
+    local sc; sc=$(state_color "$state")
+    local ac=""; [[ -n "$age" ]] && ac=$(age_color "${last_epoch_cells[$i]}")
+
+    local name_pad state_pad age_pad
     printf -v name_pad  '%-*s' "$repo_width"  "$name"
     printf -v state_pad '%-*s' "$state_width" "$state"
-    # Re-wrap just the non-space prefix in color so trailing padding stays plain.
+    printf -v age_pad   '%-*s' "$age_width"   "$age"
     local name_tail="${name_pad:${#name}}"
     local state_tail="${state_pad:${#state}}"
-    # SESSION is the trailing free-text column: pad AGE up to its width and
-    # append the title only when present (open rows pass none, leaving no
-    # trailing whitespace). As the last field it needs no padding of its own.
-    local tail=""
-    if [[ -n "$session" ]]; then
-        local age_pad; printf -v age_pad '%-*s' "$age_width" "$age"
-        tail="${age_pad:${#age}}  $session"
-    fi
-    printf '%s%s%s%s  %-*s  %s%s%s%s   %s%s%s%s\n' \
+    local age_tail="${age_pad:${#age}}"
+
+    local sess_pad=$(( session_width - ${#session} ))
+    (( sess_pad < 0 )) && sess_pad=0
+
+    printf '%s%s%s%s  %s%*s  %s%s%s%s   %s%s%s%s  %s\n' \
         "$sc" "$name" "$c_reset" "$name_tail" \
-        "$branch_width" "${branch_cells[$i]}" \
+        "$session" "$sess_pad" "" \
         "$sc" "$state" "$c_reset" "$state_tail" \
-        "$ac" "$age" "$c_reset" "$tail"
+        "$ac" "$age" "$c_reset" "$age_tail" \
+        "${branch_cells[$i]}"
 }
 
-for i in ${active_idx[@]+"${active_idx[@]}"}; do print_row "$i" "${age_cells[$i]}" "${session_cells[$i]}"; done
-# Open clones go last, with no AGE or SESSION: they're the answer to "what can I
-# grab", and a free clone's last-touched time and title aren't decision-relevant.
-for i in ${open_idx[@]+"${open_idx[@]}"}; do print_row "$i" "" ""; done
+# Active clones first, then open ones (the grabbable answer) last.
+for i in ${active_idx[@]+"${active_idx[@]}"}; do print_row "$i"; done
+for i in ${open_idx[@]+"${open_idx[@]}"}; do print_row "$i"; done
 
 # Join "$@" with " · ".
 join_dot() {
