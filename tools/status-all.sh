@@ -37,16 +37,17 @@ status_for() {
     fi
 
     # STATE answers one question: can I pick this clone up right now, and if
-    # not, why? It's a single verdict, not two orthogonal facts — so a live
-    # claim and git state collapse into one word with a clear precedence:
+    # not, why? It's a single verdict, not two orthogonal facts — so occupancy
+    # and git state collapse into one word with a clear precedence:
     #   broken  — git can't read the repo (returned above; trumps everything)
-    #   in use  — a live session is attached (overrides git state)
-    #   branch/local/pull/push — parked: has work that blocks a clean pickup
-    #   open    — on trunk, clean, in sync, unclaimed → exactly what `jc` hands you
-    if [[ "$branch" != "$TRUNK_BRANCH" ]]; then
-        state="branch"
-    elif (( dirty_count > 0 )); then
-        state="local"
+    #   in use  — someone is in it: a live claim, or a claude/shell process
+    #             cwd'd inside (overrides git state)
+    #   parked  — human work blocks a clean pickup: off trunk and/or dirty
+    #             tree. BRANCH says which — feat/x vs main* (the * marks dirt)
+    #   pull/push — on trunk, clean, but behind/ahead of upstream
+    #   open    — trunk, clean, in sync, nobody in it → what `jc` hands you
+    if [[ "$branch" != "$TRUNK_BRANCH" ]] || (( dirty_count > 0 )); then
+        state="parked"
     elif (( behind > 0 )); then
         state="pull"
     elif (( ahead > 0 )); then
@@ -55,11 +56,15 @@ status_for() {
         state="open"
     fi
 
-    # A live claim means someone is in it now, whatever the git state says.
-    # (When they exit, the clone reverts to the git-derived state above.)
+    # Someone is in it now, whatever the git state says. (When they leave,
+    # the clone reverts to the git-derived state above.)
     if clone_occupied "$path"; then
         state="in use"
     fi
+
+    # The dirty marker rides on BRANCH in every state, so `in use` rows keep
+    # showing what kind of work sits in the tree.
+    (( dirty_count > 0 )) && branch="${branch}*"
 
     echo "${branch}|${state}"
 }
@@ -87,16 +92,23 @@ now=$(date +%s)
 # from the sum of per-clone probes to the slowest single clone. Presentation
 # (widths, color, ordering) stays serial below, off the collected records.
 emit_clone() {
-    # Four newline-delimited fields: branch, state, last_epoch, session_title.
-    # status_for yields "branch|state"; claude_newest_session yields
-    # "<epoch>|<title>". Titles are single-line, so newline framing needs no
-    # escaping and the reader can split fields by line.
-    local path="$1" info session_info
+    # Five newline-delimited fields: branch, state, last_epoch, session_title,
+    # claude_live. status_for yields "branch|state"; claude_newest_session
+    # yields "<epoch>|<title>". Titles are single-line, so newline framing
+    # needs no escaping and the reader can split fields by line.
+    local path="$1" info session_info live=0
     info=$(status_for "$path")
     session_info=$(claude_newest_session "$path")
-    printf '%s\n%s\n%s\n%s\n' \
-        "${info%%|*}" "${info#*|}" "${session_info%%|*}" "${session_info#*|}"
+    proc_attached "$path" claude && live=1
+    printf '%s\n%s\n%s\n%s\n%s\n' \
+        "${info%%|*}" "${info#*|}" "${session_info%%|*}" "${session_info#*|}" \
+        "$live"
 }
+
+# Warm the process-sweep cache once here in the parent: the per-clone workers
+# below are subshells forked after this line, so they inherit the result
+# instead of each paying their own ~1s lsof.
+spork_procs >/dev/null
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/spork-status.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
@@ -108,8 +120,8 @@ wait
 declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
 for i in "${!paths[@]}"; do
     name=$(basename "${paths[$i]}")
-    # Read back the four fields this clone's worker wrote, in order.
-    { IFS= read -r branch; IFS= read -r state; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
+    # Read back the five fields this clone's worker wrote, in order.
+    { IFS= read -r branch; IFS= read -r state; IFS= read -r last_epoch; IFS= read -r session; IFS= read -r claude_live; } < "$tmp/$i"
 
     if [[ -n "$last_epoch" ]]; then
         age="$(format_relative $(( now - last_epoch )))"
@@ -127,6 +139,9 @@ for i in "${!paths[@]}"; do
     else
         [[ -z "$session" ]] && session="—"
         (( ${#session} > SESSION_MAX )) && session="${session:0:SESSION_MAX-1}…"
+        # A dot marks a claude process running there *now*, as opposed to the
+        # session history every non-open row carries.
+        [[ "$claude_live" == 1 ]] && session="● $session"
     fi
 
     name_cells+=("$name")
@@ -170,11 +185,11 @@ fi
 # Color the STATE word by meaning, not the whole row.
 state_color() {
     case "$1" in
-        open)                  printf '%s' "$c_green"  ;;
-        branch)                printf '%s' "$c_cyan"   ;;
-        "in use"|local|pull|push) printf '%s' "$c_yellow" ;;
-        broken)                printf '%s' "$c_red"    ;;
-        *)                     printf '%s' ''          ;;
+        open)               printf '%s' "$c_green"  ;;
+        parked)             printf '%s' "$c_cyan"   ;;
+        "in use"|pull|push) printf '%s' "$c_yellow" ;;
+        broken)             printf '%s' "$c_red"    ;;
+        *)                  printf '%s' ''          ;;
     esac
 }
 

@@ -1,7 +1,9 @@
 #!/bin/bash
 # status_test.sh — tests for status-all.sh's STATE verdict, which answers
-# "can I pick this clone up?" by folding a live claim and git state into one
-# word: `open` (grabbable) / `in use` (claimed) / branch|local|pull|push.
+# "can I pick this clone up?" by folding occupancy (live claim OR a claude/
+# shell process cwd'd in the clone) and git state into one word:
+# `open` (grabbable) / `in use` (occupied) / `parked` (off-trunk or dirty;
+# BRANCH shows which via a `*` dirty marker) / pull|push.
 #
 # Same harness style as claim_test.sh: a throwaway workspace with real git
 # clones, .spork symlinked at the repo under test. No network, no mirror.
@@ -51,6 +53,10 @@ make_workspace() {
     # ~/.claude state leaks in). Empty until a test writes a fixture log.
     export CLAUDE_PROJECTS_DIR="$WS/projects"
     mkdir -p "$CLAUDE_PROJECTS_DIR"
+    # Seed the process sweep as already-loaded-and-empty so occupancy is
+    # hermetic too (no real terminal/claude cwds leak in). Tests inject
+    # fake processes by overwriting SPORK_PROC_SWEEP.
+    export SPORK_PROC_SWEEP="" SPORK_PROC_SWEEP_LOADED=1
     ln -s "$SPORK_REPO" "$WS/.spork"
     mkdir -p "$WS/.spork.local"
     cat > "$WS/.spork.local/config" <<EOF
@@ -102,6 +108,16 @@ field_of() {
 }
 state_of() { field_of STATE "$1"; }
 
+# Inject a fake process sweep: sweep [<cmd> <path>]... (no args clears it).
+sweep() {
+    local out=""
+    while (( $# )); do
+        out+="${out:+$'\n'}$1"$'\t'"$2"
+        shift 2
+    done
+    export SPORK_PROC_SWEEP="$out"
+}
+
 # Claim/release a clone by name via the sourced helpers (claim.sh only grabs
 # *ready* clones, so use try_claim directly to occupy a dirty one too).
 claim_clone()   { ( cd "$WS" && . ./.spork/tools/_lib.sh && try_claim "$1" "$2" ); }
@@ -115,25 +131,68 @@ a=$(live_pid)
 # p1 ready & unclaimed -> the one grabbable state.
 check "ready, free -> open" "open" "$(state_of p1)"
 
-# pX is on a feature branch -> parked, git state shows through.
-check "feature branch -> branch" "branch" "$(state_of pX)"
+# pX is on a feature branch -> parked; BRANCH column carries the detail.
+check "feature branch -> parked" "parked" "$(state_of pX)"
+check "clean branch shows no dirty marker" "feature" "$(field_of BRANCH pX)"
 
 # p2 ready but claimed by a live session -> in use, never 'open'.
 claim_clone p2 "$a" >/dev/null
 check "ready, claimed -> in use" "in use" "$(state_of p2)"
 
-# A dirty clone reports its git state when free...
+# A dirty clone is parked too — the `*` on BRANCH says why (dirty, not branch).
 : > "$WS/p3/dirty.txt"
-check "dirty, free -> local" "local" "$(state_of p3)"
+check "dirty, free -> parked" "parked" "$(state_of p3)"
+check "dirty trunk shows star" "main*" "$(field_of BRANCH p3)"
 # ...but a live claim overrides git state: occupancy wins.
 claim_clone p3 "$a" >/dev/null
 check "dirty, claimed -> in use (claim overrides git state)" "in use" "$(state_of p3)"
+check "dirty star survives in use" "main*" "$(field_of BRANCH p3)"
 
 # Releasing reverts to the git-derived state — no background reaper.
 release_clone p2 "$a" >/dev/null
 check "release ready clone -> open again" "open" "$(state_of p2)"
 release_clone p3 "$a" >/dev/null
-check "release dirty clone -> local again" "local" "$(state_of p3)"
+check "release dirty clone -> parked again" "parked" "$(state_of p3)"
+
+# A dirty feature branch shows both facts at once: parked + feat* — a combo
+# the old branch/local split hid (branch won the ladder, dirt was invisible).
+: > "$WS/pX/dirty.txt"
+check "dirty branch -> parked" "parked" "$(state_of pX)"
+check "dirty branch shows star" "feature*" "$(field_of BRANCH pX)"
+rm "$WS/pX/dirty.txt" "$WS/p3/dirty.txt"
+
+# ---------------------------------------------------------------------------
+echo
+echo "status: a live claude/shell process occupies a clone without any claim"
+
+# A shell parked in the clone (hand-opened terminal, no claim) -> in use.
+sweep zsh "$WS/p1"
+check "shell cwd in clone -> in use" "in use" "$(state_of p1)"
+
+# A process cwd'd in a subdirectory counts (monorepo subdir sessions).
+sweep bash "$WS/p1/src/app"
+check "shell in subdir -> in use" "in use" "$(state_of p1)"
+
+# A path that merely shares the name prefix must NOT count (p1 vs p1x/p10).
+sweep zsh "$WS/p1extra"
+check "prefix sibling not matched -> open" "open" "$(state_of p1)"
+
+# A live claude process marks the row in use AND dots the session title, so
+# "claude is running here now" reads differently from mere session history.
+session_for p1 "Fix parser"
+sweep claude "$WS/p1"
+check "claude cwd -> in use" "in use" "$(state_of p1)"
+check "live claude dots the title" "● Fix parser" "$(field_of SESSION p1)"
+
+# Claude live but no session log yet -> dot on the placeholder.
+sweep claude "$WS/p2"
+check "live claude, no log -> dotted placeholder" "● —" "$(field_of SESSION p2)"
+
+# A bare shell gets no dot: the clone is in use, but no claude runs there.
+sweep zsh "$WS/p1"
+check "bare shell -> undotted title" "Fix parser" "$(field_of SESSION p1)"
+
+sweep
 
 # ---------------------------------------------------------------------------
 echo
