@@ -43,7 +43,7 @@ status_for() {
     #   in use  — someone is in it: a live claim, or a claude/shell process
     #             cwd'd inside (overrides git state)
     #   parked  — human work blocks a clean pickup: off trunk and/or dirty
-    #             tree. BRANCH says which — feat/x vs main* (the * marks dirt)
+    #             tree (parked on trunk implies the latter)
     #   pull/push — on trunk, clean, but behind/ahead of upstream
     #   open    — trunk, clean, in sync, nobody in it → what `jc` hands you
     if [[ "$branch" != "$TRUNK_BRANCH" ]] || (( dirty_count > 0 )); then
@@ -61,10 +61,6 @@ status_for() {
     if clone_occupied "$path"; then
         state="in use"
     fi
-
-    # The dirty marker rides on BRANCH in every state, so `in use` rows keep
-    # showing what kind of work sits in the tree.
-    (( dirty_count > 0 )) && branch="${branch}*"
 
     echo "${branch}|${state}"
 }
@@ -92,18 +88,15 @@ now=$(date +%s)
 # from the sum of per-clone probes to the slowest single clone. Presentation
 # (widths, color, ordering) stays serial below, off the collected records.
 emit_clone() {
-    # Five newline-delimited fields: branch, state, start_epoch, last_epoch,
-    # session_title. status_for yields "branch|state"; claude_newest_session
-    # yields "<start>|<last>|<title>". Titles are single-line, so newline
-    # framing needs no escaping and the reader can split fields by line.
-    local path="$1" info session_info start
+    # Four newline-delimited fields: branch, state, last_epoch, session_title.
+    # status_for yields "branch|state"; claude_newest_session yields
+    # "<epoch>|<title>". Titles are single-line, so newline framing needs no
+    # escaping and the reader can split fields by line.
+    local path="$1" info session_info
     info=$(status_for "$path")
     session_info=$(claude_newest_session "$path")
-    start="${session_info%%|*}"
-    session_info="${session_info#*|}"
-    printf '%s\n%s\n%s\n%s\n%s\n' \
-        "${info%%|*}" "${info#*|}" "$start" \
-        "${session_info%%|*}" "${session_info#*|}"
+    printf '%s\n%s\n%s\n%s\n' \
+        "${info%%|*}" "${info#*|}" "${session_info%%|*}" "${session_info#*|}"
 }
 
 # Warm the process-sweep cache once here in the parent: the per-clone workers
@@ -121,14 +114,14 @@ wait
 declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
 for i in "${!paths[@]}"; do
     name=$(basename "${paths[$i]}")
-    # Read back the five fields this clone's worker wrote, in order.
-    { IFS= read -r branch; IFS= read -r state; IFS= read -r start_epoch; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
+    # Read back the four fields this clone's worker wrote, in order.
+    { IFS= read -r branch; IFS= read -r state; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
 
-    # AGE is anchored to the session's *start* — how long this piece of work
-    # has existed — while staleness color and row order key on last_epoch,
-    # the last write (see age_color and the active-row sort below).
-    if [[ -n "$start_epoch" ]]; then
-        age="$(format_relative $(( now - start_epoch )))"
+    # AGE = time since you last interacted with the clone's newest session
+    # (its jsonl's last write). The active-row sort below uses the same
+    # epoch, so the table reads top-down from freshest to coldest.
+    if [[ -n "$last_epoch" ]]; then
+        age="$(format_relative $(( now - last_epoch )))"
     else
         age="—"
     fi

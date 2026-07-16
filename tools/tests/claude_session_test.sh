@@ -1,8 +1,7 @@
 #!/bin/bash
 # claude_session_test.sh — tests for the Claude-session readers in _lib.sh:
 #   claude_session_title  — pull the latest ai-title out of a session jsonl
-#   claude_newest_session — newest jsonl (by mtime) for a clone, as
-#                           "<start>|<last>|<title>" (birthtime, mtime, title)
+#   claude_newest_session — newest jsonl (by mtime) for a clone, "<epoch>|<title>"
 #
 # These drive the SESSION column in `just status`. Both are exercised against a
 # fixture projects dir via the CLAUDE_PROJECTS_DIR override, so no real
@@ -86,24 +85,15 @@ touch -t 202601010000 "$old"
 touch -t 202601020000 "$new"
 
 got=$(claude_newest_session "$repo")
-check "title comes from newest file (subdir counts)" "Newest work" "${got##*|}"
-check "last is the newest file's mtime" "$(stat -f %m "$new")" "$(cut -d'|' -f2 <<<"$got")"
-check "start is the newest file's birthtime" "$(stat -f %B "$new")" "${got%%|*}"
-
-# A session that ran for days: birthtime stays at creation while mtime moves
-# forward, so start and last diverge — the raw material for the AGE column.
-touch -t 202601040000 "$new"   # later write, same session
-got=$(claude_newest_session "$repo")
-check "start stays at session birth" "$(stat -f %B "$new")" "${got%%|*}"
-check "last follows the newer write" "$(stat -f %m "$new")" "$(cut -d'|' -f2 <<<"$got")"
-check "start predates last" 1 "$(( ${got%%|*} < $(cut -d'|' -f2 <<<"$got") ))"
+check "title comes from newest file (subdir counts)" "Newest work" "${got#*|}"
+check "epoch is the newest file's mtime" "$(stat -f %m "$new")" "${got%%|*}"
 
 # Flip mtimes: the other file is now newest.
-touch -t 202601050000 "$old"
-check "newest re-evaluated by mtime" "Old work" "$(claude_newest_session "$repo" | sed 's/^[^|]*|[^|]*|//')"
+touch -t 202601030000 "$old"
+check "newest re-evaluated by mtime" "Old work" "$(claude_newest_session "$repo" | sed 's/^[^|]*|//')"
 
 # A clone with no sessions at all.
-check "no sessions -> empty fields" "||" "$(claude_newest_session "$WS/p2")"
+check "no sessions -> empty pair" "|" "$(claude_newest_session "$WS/p2")"
 
 # ---------------------------------------------------------------------------
 echo

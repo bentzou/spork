@@ -9,7 +9,7 @@ $ just status
 REPO  SESSION                        STATE   AGE   BRANCH
 p1    Build search index syncer      in use  2m    feat/search-index-sync
 p3    Fix image cache expiry bug     parked  5d    fix/image-cache-expiry
-p4    Spike: sqlite cache backend    parked  12d   main*  ← stale: AGE turns red after 7d
+p4    Spike: sqlite cache backend    parked  12d   main   ← stale: AGE turns red after 7d
 p5    Abstract the storage backend   in use  1d    feat/storage-interfaces
 p2                                   open          main
 p6                                   open          main
@@ -17,15 +17,14 @@ p6                                   open          main
 
 `STATE` answers "can I pick this clone up?" — `open` means yes; `in use`
 means someone is in it right now (a live Claude session, or a terminal
-parked in the clone); `parked` means unfinished work blocks it, with
-BRANCH saying what kind (a feature branch, or `main*` where `*` marks
-uncommitted changes). `AGE` is how long ago the clone's
-latest Claude session *started* — how old that piece of work is;
-`SESSION` is the title of that session, so you can tell at a glance
-*what* each in-flight clone was for — not just that it's busy. Rows are
-ordered by recency: the clones you touched most recently come first, and
-open clones sort to the bottom with no AGE or SESSION — a free clone's
-history isn't decision-relevant.
+parked in the clone); `parked` means unfinished work blocks it — a
+feature branch checked out, uncommitted changes on trunk, or both.
+`AGE` is the time since you last worked in that clone with Claude Code;
+`SESSION` is the title of that most-recent Claude session, so you can
+tell at a glance *what* each in-flight clone was for — not just that
+it's busy. Rows are ordered by that same recency: the clones you touched
+most recently come first, and open clones sort to the bottom with no AGE
+or SESSION — a free clone's history isn't decision-relevant.
 
 ## Concept
 
@@ -210,20 +209,18 @@ REPO  SESSION  STATE  AGE  BRANCH
   - `in use` (yellow) — someone is in it now: a live claim, or a claude/shell
     process detected inside the clone (see [Occupancy](#claims--occupancy)).
     Overrides git state; reverts when they leave.
-  - `parked` (cyan) — unfinished work blocks a clean pickup: checked out on a
-    non-trunk branch and/or a dirty tree. BRANCH says which — a feature
-    branch name, and/or a `*` suffix marking uncommitted changes.
+  - `parked` (cyan) — unfinished work blocks a clean pickup: checked out on
+    a non-trunk branch and/or a dirty tree (a `parked` clone showing the
+    trunk branch implies the latter).
   - `pull` / `push` (yellow) — on trunk and clean, but behind/ahead of
     upstream.
   - `broken` (red) — git can't read the repo.
-- **AGE** — time since the clone's most recent Claude session *started*
-  (the birthtime of the newest session jsonl in
-  `~/.claude/projects/<encoded-path>*/*.jsonl`, where `<encoded-path>` is
-  the clone's absolute path with `/` → `-`; subdir sessions count too).
-  The newest session is picked by last write, and rows order by that same
-  last-write time, most recent first — so a long-running session can show
-  a large AGE while sorting near the top. Red once the clone hasn't been
-  *touched* (last write) in ≥ 7 days. Blank for open clones.
+- **AGE** — time since the most recent Claude session jsonl in
+  `~/.claude/projects/<encoded-path>*/*.jsonl` was written, where
+  `<encoded-path>` is the clone's absolute path with `/` → `-`. Subdir
+  sessions count too. Active rows are ordered by this same recency, most
+  recently touched first. Red once a clone hasn't been touched in ≥ 7
+  days. Blank for open clones.
 
   This column assumes you use [Claude Code](https://claude.ai/code) and
   reflects when you last worked in each clone with it. If you don't, the

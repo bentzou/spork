@@ -2,8 +2,8 @@
 # status_test.sh — tests for status-all.sh's STATE verdict, which answers
 # "can I pick this clone up?" by folding occupancy (live claim OR a claude/
 # shell process cwd'd in the clone) and git state into one word:
-# `open` (grabbable) / `in use` (occupied) / `parked` (off-trunk or dirty;
-# BRANCH shows which via a `*` dirty marker) / pull|push.
+# `open` (grabbable) / `in use` (occupied) / `parked` (off-trunk and/or
+# dirty tree) / pull|push.
 #
 # Same harness style as claim_test.sh: a throwaway workspace with real git
 # clones, .spork symlinked at the repo under test. No network, no mirror.
@@ -131,22 +131,21 @@ a=$(live_pid)
 # p1 ready & unclaimed -> the one grabbable state.
 check "ready, free -> open" "open" "$(state_of p1)"
 
-# pX is on a feature branch -> parked; BRANCH column carries the detail.
+# pX is on a feature branch -> parked; BRANCH column carries the branch name.
 check "feature branch -> parked" "parked" "$(state_of pX)"
-check "clean branch shows no dirty marker" "feature" "$(field_of BRANCH pX)"
+check "BRANCH shows the branch, unadorned" "feature" "$(field_of BRANCH pX)"
 
 # p2 ready but claimed by a live session -> in use, never 'open'.
 claim_clone p2 "$a" >/dev/null
 check "ready, claimed -> in use" "in use" "$(state_of p2)"
 
-# A dirty clone is parked too — the `*` on BRANCH says why (dirty, not branch).
+# A dirty clone is parked too (parked on trunk implies a dirty tree).
 : > "$WS/p3/dirty.txt"
 check "dirty, free -> parked" "parked" "$(state_of p3)"
-check "dirty trunk shows star" "main*" "$(field_of BRANCH p3)"
+check "dirty trunk BRANCH stays plain" "main" "$(field_of BRANCH p3)"
 # ...but a live claim overrides git state: occupancy wins.
 claim_clone p3 "$a" >/dev/null
 check "dirty, claimed -> in use (claim overrides git state)" "in use" "$(state_of p3)"
-check "dirty star survives in use" "main*" "$(field_of BRANCH p3)"
 
 # Releasing reverts to the git-derived state — no background reaper.
 release_clone p2 "$a" >/dev/null
@@ -154,11 +153,9 @@ check "release ready clone -> open again" "open" "$(state_of p2)"
 release_clone p3 "$a" >/dev/null
 check "release dirty clone -> parked again" "parked" "$(state_of p3)"
 
-# A dirty feature branch shows both facts at once: parked + feat* — a combo
-# the old branch/local split hid (branch won the ladder, dirt was invisible).
+# A dirty feature branch is just parked as well.
 : > "$WS/pX/dirty.txt"
 check "dirty branch -> parked" "parked" "$(state_of pX)"
-check "dirty branch shows star" "feature*" "$(field_of BRANCH pX)"
 rm "$WS/pX/dirty.txt" "$WS/p3/dirty.txt"
 
 # ---------------------------------------------------------------------------
@@ -234,7 +231,7 @@ check "p9 precedes p10"  "1" "$(( $(row_index_of p9)  < $(row_index_of p10) ))"
 
 # ---------------------------------------------------------------------------
 echo
-echo "status: AGE counts from session start; active rows order by last touch"
+echo "status: AGE counts from last interaction; active rows order by it too"
 
 make_workspace 3
 # Two parked clones with session logs. p1's session started 5 days ago and
@@ -251,9 +248,10 @@ touch -t "$(date -v-5d +%Y%m%d%H%M)" "$p1_file"   # birth = last = 5d ago
 touch -t "$(date -v-4d +%Y%m%d%H%M)" "$p1_file"   # last write -> 4d ago
 touch -t "$(date -v-1d +%Y%m%d%H%M)" "$p2_file"   # birth = last = 1d ago
 
-# AGE is anchored to the session's start, not its last write.
-check "AGE from session start (not last write)" "5d" "$(field_of AGE p1)"
-check "AGE equals both when they coincide"      "1d" "$(field_of AGE p2)"
+# AGE is anchored to the session's last write — when you last interacted —
+# not its start (p1's fixture separates the two: born 5d ago, written 4d).
+check "AGE from last write (not session start)" "4d" "$(field_of AGE p1)"
+check "AGE when start and last write coincide"  "1d" "$(field_of AGE p2)"
 
 # Ordering is by last touch, most recent first: p2 (1d) outranks p1 (4d),
 # beating the natural p1-then-p2 clone order.
