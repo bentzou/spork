@@ -253,6 +253,21 @@ format_relative() {
     fi
 }
 
+# Local branches (other than TRUNK_BRANCH) holding commits <base-ref> doesn't
+# have, as "<branch> <ahead-count>" lines — i.e. work a hard reset would
+# destroy. Branches fully contained in <base-ref> are omitted (deleting those
+# loses nothing). Empty output when every branch is merged.
+clone_unmerged_branches() {
+    local path="$1" base="$2" b ahead
+    while IFS= read -r b; do
+        [[ "$b" == "$TRUNK_BRANCH" ]] && continue
+        if ! git -C "$path" merge-base --is-ancestor "$b" "$base" 2>/dev/null; then
+            ahead=$(git -C "$path" rev-list --count "$base..$b" 2>/dev/null || echo "?")
+            printf '%s %s\n' "$b" "$ahead"
+        fi
+    done < <(git -C "$path" for-each-ref refs/heads --format='%(refname:short)' 2>/dev/null)
+}
+
 # Claude sessions
 # ---------------
 # Claude Code writes one jsonl per session under CLAUDE_PROJECTS_DIR, in a

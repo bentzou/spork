@@ -146,6 +146,7 @@ The recipes in `spork.just` wrap the scripts in `tools/`:
 | `just go` | Print the path of the first open (ready, unoccupied) clone (for shell `cd`). |
 | `just claude` | Claim the first open clone and start Claude in it. |
 | `just restart <id>` | Reopen a Claude session from `just log` by its ID, in its clone. |
+| `just reset <name>` | Reset a clone to pristine `open` (guards unpushed work; see below). |
 
 ## "Ready" definition
 
@@ -289,6 +290,27 @@ clone is currently in use by another live session, restart refuses rather
 than dropping a second Claude into it (the `(in use)` marker in `just log`
 flags those up front). The git state of the clone is left as-is: you return
 to whatever branch/working tree it's on now.
+
+## Resetting a clone
+
+`just reset <name>` takes a parked clone back to **open**: checkout
+`TRUNK_BRANCH`, hard-reset it to origin's tracking ref (the freshest ref
+the mirror knows — no network), remove untracked files, and delete local
+branches already merged into that base.
+
+It refuses to touch an occupied clone, and it refuses to destroy work — a
+dirty tree, an unmerged branch, unpushed trunk commits — listing exactly
+what would be lost; add `--force` to discard it. So the bare command is
+always safe to reflex-run. (The hard reset and branch deletions stay
+reflog-recoverable for a while; the untracked-file cleanup does not.)
+
+`--full` goes further: it also wipes ignored files (`node_modules`, build
+caches, local envs) and reruns `POST_CLONE` to rebuild them — factory-new
+rather than merely grabbable.
+
+If a clone shows **broken** in the status table, reset can't help — git
+itself can't read the repo. Remove the directory and `just clone` a fresh
+one.
 
 ## Post-clone bootstrap
 
