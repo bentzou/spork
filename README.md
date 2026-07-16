@@ -6,21 +6,23 @@ in-flight branch) without paying disk or network for redundant `.git` data.
 
 ```
 $ just status
-REPO  SESSION                      STATE  AGE   BRANCH
-p1    Build search index syncer    branch 21h   feat/search-index-sync
-p3    Fix image cache expiry bug   branch 5d    fix/image-cache-expiry
-p4    Spike: sqlite cache backend  local  12d   main   ← stale: AGE turns red after 7d
-p5    Abstract the storage backend branch 1d    feat/storage-interfaces
-p2                                 ready        main
-p6                                 ready        main
+REPO  SESSION                        STATE   AGE   BRANCH
+p1    ● Build search index syncer    in use  2m    feat/search-index-sync
+p3    Fix image cache expiry bug     parked  5d    fix/image-cache-expiry
+p4    Spike: sqlite cache backend    parked  12d   main*  ← stale: AGE turns red after 7d
+p5    Abstract the storage backend   in use  1d    feat/storage-interfaces
+p2                                   open          main
+p6                                   open          main
 ```
 
-`STATE` shows what's blocking each clone (`ready` = clean and on
-trunk); `AGE` is the time since you last worked in that clone with
-Claude Code; `SESSION` is the title of that most-recent Claude session,
-so you can tell at a glance *what* each in-flight clone was for — not
-just that it's busy. At a glance you can see which clones are free,
-which are mid-flight, and which have gone cold. (Ready clones sort to
+`STATE` answers "can I pick this clone up?" — `open` means yes; `in use`
+means someone is in it right now (a `●` on the title means a Claude
+session is running there this minute); `parked` means unfinished work
+blocks it, with BRANCH saying what kind (a feature branch, or `main*`
+where `*` marks uncommitted changes). `AGE` is the time since you last
+worked in that clone with Claude Code; `SESSION` is the title of that
+most-recent Claude session, so you can tell at a glance *what* each
+in-flight clone was for — not just that it's busy. (Open clones sort to
 the bottom with no AGE or SESSION — a free clone's history isn't
 decision-relevant.)
 
@@ -125,6 +127,9 @@ definition win. For example, a monorepo whose app lives in a subdir overrides
 | `TRUNK_BRANCH` | Branch that `just sync` ff-merges; others are fetch-only. |
 | `CLONE_PREFIX` | Prefix `clone` uses for new clones. Default `p`. |
 
+Optional: `POST_CLONE` (see below) and `SPORK_LIVE_COMMANDS` (see
+[Claims & occupancy](#claims--occupancy)).
+
 ## Recipes
 
 The recipes in `spork.just` wrap the scripts in `tools/`:
@@ -138,8 +143,8 @@ The recipes in `spork.just` wrap the scripts in `tools/`:
 | `just fetch` | Foreground fetch in every clone. |
 | `just sync-setup` | One-time: create the mirror and link existing clones. |
 | `just clone` | Create the next `<CLONE_PREFIX><N>` clone, wired to the mirror. No network. |
-| `just go` | Print the path of the first ready, unclaimed clone (for shell `cd`). |
-| `just claude` | Claim the first ready, unclaimed clone and open Claude in it. |
+| `just go` | Print the path of the first open (ready, unoccupied) clone (for shell `cd`). |
+| `just claude` | Claim the first open clone and start Claude in it. |
 | `just restart <id>` | Reopen a Claude session from `just log` by its ID, in its clone. |
 
 ## "Ready" definition
@@ -150,20 +155,21 @@ A clone is **ready** when:
 - working tree is clean (`git status --porcelain` empty),
 - in sync with `origin/$TRUNK_BRANCH` (no ahead/behind).
 
-`just go` picks the first ready, unclaimed clone in iteration order.
+`just go` picks the first ready, unoccupied clone in iteration order
+(**open** in the status table).
 
-## Claims
+## Claims & occupancy
 
 Opening a session in a clone doesn't change its git state, so a freshly
 opened clone still looks **ready** — which means two terminals each running
-`jc`/`just claude` would otherwise both land in the *same* clone. Claims
-prevent that.
+`jc`/`just claude` would otherwise both land in the *same* clone. Occupancy
+is tracked two ways, and a clone counts as occupied if *either* says so:
 
-A **claim** is the directory `runtime/claims/<clone>`, holding a `pid` file
-with the owning process. `just claude` (and the `jc` shortcut) grabs the
-first ready clone by atomically creating that directory — `mkdir` is atomic,
-so concurrent invocations grab different clones instead of colliding. `just
-go` and the picker skip any clone with a live claim.
+**Claims** record intent. A claim is the directory `runtime/claims/<clone>`,
+holding a `pid` file with the owning process. `just claude` (and the `jc`
+shortcut) grabs the first ready clone by atomically creating that directory —
+`mkdir` is atomic, so concurrent invocations grab different clones instead
+of colliding.
 
 A claim is **live** only while its owner PID is running, so it self-heals:
 
@@ -174,33 +180,58 @@ A claim is **live** only while its owner PID is running, so it self-heals:
 The owner PID is the shell/session that lives for the duration of the work
 (your interactive shell for `jc`, the recipe's shell for `just claude`).
 
+**Process detection** records observation. Sessions opened *outside* the
+wrappers — you `cd` into a clone and run `claude` by hand, or just leave a
+terminal tab parked there — never create a claim, so spork also sweeps for
+live claude/shell processes whose cwd is inside a clone (one `pgrep`+`lsof`
+pass, ~1s, cached per command). Any hit marks the clone `in use`, and
+`just go` / `just claude` skip it. `just restart` refuses a clone with a
+claude running in it, but tolerates a bare terminal — you're deliberately
+returning, and that shell may well be your own. The watched process list is
+`claude zsh bash fish`; override `SPORK_LIVE_COMMANDS` in config if your
+shell isn't on it. Detection is best-effort (it can't see other users'
+processes), and if `pgrep`/`lsof` are unavailable occupancy quietly falls
+back to claims alone.
+
+Detection can't replace claims: an `lsof` snapshot has a wide window between
+"looks free" and "claude is actually running there", so two concurrent grabs
+would both see free. The atomic claim is what makes the race safe; the sweep
+is what keeps the table honest.
+
 ## Status table columns
 
 ```
 REPO  SESSION  STATE  AGE  BRANCH
 ```
 
-- **STATE** — single word per clone:
-  - `ready` (green) — see above.
-  - `branch` (cyan) — checked out on a non-trunk branch.
-  - `local` (yellow) — uncommitted changes on trunk.
-  - `pull` / `push` (yellow) — trunk diverged from upstream.
+- **STATE** — one verdict per clone: can you pick it up, and if not, why?
+  - `open` (green) — ready (see above) and nobody in it. What `jc` hands you.
+  - `in use` (yellow) — someone is in it now: a live claim, or a claude/shell
+    process detected inside the clone (see [Occupancy](#claims--occupancy)).
+    Overrides git state; reverts when they leave.
+  - `parked` (cyan) — unfinished work blocks a clean pickup: checked out on a
+    non-trunk branch and/or a dirty tree. BRANCH says which — a feature
+    branch name, and/or a `*` suffix marking uncommitted changes.
+  - `pull` / `push` (yellow) — on trunk and clean, but behind/ahead of
+    upstream.
+  - `broken` (red) — git can't read the repo.
 - **AGE** — time since the most recent Claude session jsonl in
   `~/.claude/projects/<encoded-path>*/*.jsonl` was written, where
   `<encoded-path>` is the clone's absolute path with `/` → `-`. Subdir
   sessions count too. Red once a clone hasn't been touched in ≥ 7 days.
-  Blank for ready clones.
+  Blank for open clones.
 
   This column assumes you use [Claude Code](https://claude.ai/code) and
   reflects when you last worked in each clone with it. If you don't, the
   column will just show `—` everywhere.
 - **SESSION** — title of that same most-recent session: the `aiTitle`
   Claude Code records for it (the auto-generated name shown in its
-  picker). Free-text, truncated past 56 columns. Blank for ready clones;
-  `—` when the clone has no session. Lets you read the table as "*p3* is
-  mid-flight on the *cache expiry* work" without opening anything. Set
-  `CLAUDE_PROJECTS_DIR` to point the AGE/SESSION lookups at a non-default
-  sessions root.
+  picker). Free-text, truncated past 56 columns. Blank for open clones;
+  `—` when the clone has no session. A `●` prefix means a claude process
+  is running in the clone *right now* — everything else is history. Lets
+  you read the table as "*p3* is mid-flight on the *cache expiry* work"
+  without opening anything. Set `CLAUDE_PROJECTS_DIR` to point the
+  AGE/SESSION lookups at a non-default sessions root.
 - **BRANCH** — the clone's current branch. It's the trailing column (a
   branch name has no spaces, so it's safe to leave unpadded after the
   free-text SESSION title).
@@ -228,10 +259,12 @@ A clone can appear on several rows — once per session you've worked in it,
 (see `just restart` below); `SESSION` is its `aiTitle`, or `—` if it never
 got one.
 
-Rows whose clone has a live Claude session attached are marked **`(in use)`**
-(yellow on a terminal). You can't cleanly resume those — only one Claude can
-run per clone — so `just restart` will refuse them; the marker tells you that
-up front, before you copy an id.
+Rows whose clone is occupied (a live claim, or a claude/shell process
+detected inside it — see [Claims & occupancy](#claims--occupancy)) are
+marked **`(in use)`** (yellow on a terminal). A clone with a claude already
+running can't be cleanly resumed — only one Claude can run per clone — so
+`just restart` will refuse it; the marker tells you that up front, before
+you copy an id.
 
 `just log` shows the 20 most recent by default. Pass a count for more or
 fewer (`just log 50`), or `all` for the full history (`just log all`). It
