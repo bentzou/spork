@@ -234,6 +234,39 @@ check "p9 precedes p10"  "1" "$(( $(row_index_of p9)  < $(row_index_of p10) ))"
 
 # ---------------------------------------------------------------------------
 echo
+echo "status: AGE counts from session start; active rows order by last touch"
+
+make_workspace 3
+# Two parked clones with session logs. p1's session started 5 days ago and
+# was last written 4 days ago (a long-running session); p2's started and
+# ended 1 day ago. touch -t backdates birthtime along with mtime, and a
+# later forward touch moves only mtime — so the two act as birth/last knobs.
+: > "$WS/p1/dirty.txt"
+: > "$WS/p2/dirty.txt"
+session_for p1 "Long running work"
+session_for p2 "Short recent work"
+p1_file="$CLAUDE_PROJECTS_DIR/${WS//\//-}-p1/s.jsonl"
+p2_file="$CLAUDE_PROJECTS_DIR/${WS//\//-}-p2/s.jsonl"
+touch -t "$(date -v-5d +%Y%m%d%H%M)" "$p1_file"   # birth = last = 5d ago
+touch -t "$(date -v-4d +%Y%m%d%H%M)" "$p1_file"   # last write -> 4d ago
+touch -t "$(date -v-1d +%Y%m%d%H%M)" "$p2_file"   # birth = last = 1d ago
+
+# AGE is anchored to the session's start, not its last write.
+check "AGE from session start (not last write)" "5d" "$(field_of AGE p1)"
+check "AGE equals both when they coincide"      "1d" "$(field_of AGE p2)"
+
+# Ordering is by last touch, most recent first: p2 (1d) outranks p1 (4d),
+# beating the natural p1-then-p2 clone order.
+check "recently-touched active row first" "1" \
+    "$(( $(row_index_of p2) < $(row_index_of p1) ))"
+# A session-less active clone (pX, feature branch) sorts after both.
+check "session-less active row last among active" "1" \
+    "$(( $(row_index_of p1) < $(row_index_of pX) ))"
+# Open clones still close the table.
+check "open rows stay last" "1" "$(( $(row_index_of pX) < $(row_index_of p3) ))"
+
+# ---------------------------------------------------------------------------
+echo
 nfail=$(wc -l < "$FAILFILE" | tr -d ' ')
 echo "failed: $nfail"
 (( nfail == 0 ))

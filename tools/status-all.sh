@@ -92,15 +92,18 @@ now=$(date +%s)
 # from the sum of per-clone probes to the slowest single clone. Presentation
 # (widths, color, ordering) stays serial below, off the collected records.
 emit_clone() {
-    # Four newline-delimited fields: branch, state, last_epoch, session_title.
-    # status_for yields "branch|state"; claude_newest_session yields
-    # "<epoch>|<title>". Titles are single-line, so newline framing needs no
-    # escaping and the reader can split fields by line.
-    local path="$1" info session_info
+    # Five newline-delimited fields: branch, state, start_epoch, last_epoch,
+    # session_title. status_for yields "branch|state"; claude_newest_session
+    # yields "<start>|<last>|<title>". Titles are single-line, so newline
+    # framing needs no escaping and the reader can split fields by line.
+    local path="$1" info session_info start
     info=$(status_for "$path")
     session_info=$(claude_newest_session "$path")
-    printf '%s\n%s\n%s\n%s\n' \
-        "${info%%|*}" "${info#*|}" "${session_info%%|*}" "${session_info#*|}"
+    start="${session_info%%|*}"
+    session_info="${session_info#*|}"
+    printf '%s\n%s\n%s\n%s\n%s\n' \
+        "${info%%|*}" "${info#*|}" "$start" \
+        "${session_info%%|*}" "${session_info#*|}"
 }
 
 # Warm the process-sweep cache once here in the parent: the per-clone workers
@@ -118,11 +121,14 @@ wait
 declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
 for i in "${!paths[@]}"; do
     name=$(basename "${paths[$i]}")
-    # Read back the four fields this clone's worker wrote, in order.
-    { IFS= read -r branch; IFS= read -r state; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
+    # Read back the five fields this clone's worker wrote, in order.
+    { IFS= read -r branch; IFS= read -r state; IFS= read -r start_epoch; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
 
-    if [[ -n "$last_epoch" ]]; then
-        age="$(format_relative $(( now - last_epoch )))"
+    # AGE is anchored to the session's *start* — how long this piece of work
+    # has existed — while staleness color and row order key on last_epoch,
+    # the last write (see age_color and the active-row sort below).
+    if [[ -n "$start_epoch" ]]; then
+        age="$(format_relative $(( now - start_epoch )))"
     else
         age="—"
     fi
@@ -167,6 +173,20 @@ for i in "${!paths[@]}"; do
         active_idx+=("$i")
     fi
 done
+
+# Active rows render most-recently-used first (by last write). Clones with no
+# session sort last among active; ties keep natural clone order via the index
+# as a secondary key. Open rows are interchangeable, so they keep natural
+# order untouched.
+if (( ${#active_idx[@]} > 1 )); then
+    sorted=()
+    while IFS= read -r line; do sorted+=("${line#* }"); done < <(
+        for i in "${active_idx[@]}"; do
+            printf '%s %s\n' "${last_epoch_cells[$i]:-0}" "$i"
+        done | sort -k1,1rn -k2,2n
+    )
+    active_idx=("${sorted[@]}")
+fi
 
 c_green='' c_yellow='' c_cyan='' c_red='' c_reset=''
 if [[ -t 1 ]]; then

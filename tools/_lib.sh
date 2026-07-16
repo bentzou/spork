@@ -314,11 +314,13 @@ claude_clone_session_files() {
     stat -f '%m %N' "${files[@]}" 2>/dev/null
 }
 
-# Newest session (by mtime) for any cwd inside a clone, as "<epoch>|<title>".
-# Both empty ("|") when the clone has no sessions. Title is read from that same
-# newest file — i.e. the session you most recently touched here.
+# Newest session (by last write) for any cwd inside a clone, as
+# "<start>|<last>|<title>". `start` is the session file's birthtime — when
+# the session began; `last` is its mtime — when you last worked in it. All
+# fields empty ("||") when the clone has no sessions. Title is read from that
+# same newest file — i.e. the session you most recently touched here.
 claude_newest_session() {
-    local best=0 best_file="" line mtime file
+    local best=0 best_file="" line mtime file start
     while IFS= read -r line; do
         mtime="${line%% *}"
         file="${line#* }"
@@ -326,8 +328,10 @@ claude_newest_session() {
     done < <(claude_clone_session_files "$1")
 
     if (( best > 0 )); then
-        printf '%s|%s' "$best" "$(claude_session_title "$best_file")"
+        # Fall back to mtime if birthtime is unreadable (start == last).
+        start=$(stat -f %B "$best_file" 2>/dev/null) || start=$best
+        printf '%s|%s|%s' "$start" "$best" "$(claude_session_title "$best_file")"
     else
-        printf '|'
+        printf '||'
     fi
 }
