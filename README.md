@@ -7,7 +7,7 @@ in-flight branch) without paying disk or network for redundant `.git` data.
 ```
 $ just status
 REPO  SESSION                        STATE   AGE   BRANCH
-p1    ● Build search index syncer    in use  2m    feat/search-index-sync
+p1    Build search index syncer      in use  2m    feat/search-index-sync
 p3    Fix image cache expiry bug     parked  5d    fix/image-cache-expiry
 p4    Spike: sqlite cache backend    parked  12d   main*  ← stale: AGE turns red after 7d
 p5    Abstract the storage backend   in use  1d    feat/storage-interfaces
@@ -16,10 +16,10 @@ p6                                   open          main
 ```
 
 `STATE` answers "can I pick this clone up?" — `open` means yes; `in use`
-means someone is in it right now (a `●` on the title means a Claude
-session is running there this minute); `parked` means unfinished work
-blocks it, with BRANCH saying what kind (a feature branch, or `main*`
-where `*` marks uncommitted changes). `AGE` is the time since you last
+means someone is in it right now (a live Claude session, or a terminal
+parked in the clone); `parked` means unfinished work blocks it, with
+BRANCH saying what kind (a feature branch, or `main*` where `*` marks
+uncommitted changes). `AGE` is the time since you last
 worked in that clone with Claude Code; `SESSION` is the title of that
 most-recent Claude session, so you can tell at a glance *what* each
 in-flight clone was for — not just that it's busy. (Open clones sort to
@@ -227,11 +227,10 @@ REPO  SESSION  STATE  AGE  BRANCH
 - **SESSION** — title of that same most-recent session: the `aiTitle`
   Claude Code records for it (the auto-generated name shown in its
   picker). Free-text, truncated past 56 columns. Blank for open clones;
-  `—` when the clone has no session. A `●` prefix means a claude process
-  is running in the clone *right now* — everything else is history. Lets
-  you read the table as "*p3* is mid-flight on the *cache expiry* work"
-  without opening anything. Set `CLAUDE_PROJECTS_DIR` to point the
-  AGE/SESSION lookups at a non-default sessions root.
+  `—` when the clone has no session. Lets you read the table as "*p3* is
+  mid-flight on the *cache expiry* work" without opening anything. Set
+  `CLAUDE_PROJECTS_DIR` to point the AGE/SESSION lookups at a non-default
+  sessions root.
 - **BRANCH** — the clone's current branch. It's the trailing column (a
   branch name has no spaces, so it's safe to leave unpadded after the
   free-text SESSION title).

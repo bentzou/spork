@@ -177,20 +177,12 @@ check "shell in subdir -> in use" "in use" "$(state_of p1)"
 sweep zsh "$WS/p1extra"
 check "prefix sibling not matched -> open" "open" "$(state_of p1)"
 
-# A live claude process marks the row in use AND dots the session title, so
-# "claude is running here now" reads differently from mere session history.
+# A live claude process occupies the clone like any other attachment; the
+# SESSION title renders the same either way.
 session_for p1 "Fix parser"
 sweep claude "$WS/p1"
 check "claude cwd -> in use" "in use" "$(state_of p1)"
-check "live claude dots the title" "● Fix parser" "$(field_of SESSION p1)"
-
-# Claude live but no session log yet -> dot on the placeholder.
-sweep claude "$WS/p2"
-check "live claude, no log -> dotted placeholder" "● —" "$(field_of SESSION p2)"
-
-# A bare shell gets no dot: the clone is in use, but no claude runs there.
-sweep zsh "$WS/p1"
-check "bare shell -> undotted title" "Fix parser" "$(field_of SESSION p1)"
+check "occupied clone shows its title" "Fix parser" "$(field_of SESSION p1)"
 
 sweep
 

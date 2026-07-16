@@ -92,17 +92,15 @@ now=$(date +%s)
 # from the sum of per-clone probes to the slowest single clone. Presentation
 # (widths, color, ordering) stays serial below, off the collected records.
 emit_clone() {
-    # Five newline-delimited fields: branch, state, last_epoch, session_title,
-    # claude_live. status_for yields "branch|state"; claude_newest_session
-    # yields "<epoch>|<title>". Titles are single-line, so newline framing
-    # needs no escaping and the reader can split fields by line.
-    local path="$1" info session_info live=0
+    # Four newline-delimited fields: branch, state, last_epoch, session_title.
+    # status_for yields "branch|state"; claude_newest_session yields
+    # "<epoch>|<title>". Titles are single-line, so newline framing needs no
+    # escaping and the reader can split fields by line.
+    local path="$1" info session_info
     info=$(status_for "$path")
     session_info=$(claude_newest_session "$path")
-    proc_attached "$path" claude && live=1
-    printf '%s\n%s\n%s\n%s\n%s\n' \
-        "${info%%|*}" "${info#*|}" "${session_info%%|*}" "${session_info#*|}" \
-        "$live"
+    printf '%s\n%s\n%s\n%s\n' \
+        "${info%%|*}" "${info#*|}" "${session_info%%|*}" "${session_info#*|}"
 }
 
 # Warm the process-sweep cache once here in the parent: the per-clone workers
@@ -120,8 +118,8 @@ wait
 declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
 for i in "${!paths[@]}"; do
     name=$(basename "${paths[$i]}")
-    # Read back the five fields this clone's worker wrote, in order.
-    { IFS= read -r branch; IFS= read -r state; IFS= read -r last_epoch; IFS= read -r session; IFS= read -r claude_live; } < "$tmp/$i"
+    # Read back the four fields this clone's worker wrote, in order.
+    { IFS= read -r branch; IFS= read -r state; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
 
     if [[ -n "$last_epoch" ]]; then
         age="$(format_relative $(( now - last_epoch )))"
@@ -139,9 +137,6 @@ for i in "${!paths[@]}"; do
     else
         [[ -z "$session" ]] && session="—"
         (( ${#session} > SESSION_MAX )) && session="${session:0:SESSION_MAX-1}…"
-        # A dot marks a claude process running there *now*, as opposed to the
-        # session history every non-open row carries.
-        [[ "$claude_live" == 1 ]] && session="● $session"
     fi
 
     name_cells+=("$name")
