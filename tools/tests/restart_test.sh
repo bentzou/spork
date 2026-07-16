@@ -48,6 +48,8 @@ make_workspace() {
     local n="$1" i
     WS=$(mktemp -d)
     export CLAUDE_PROJECTS_DIR="$WS/projects"
+    # Hermetic occupancy: no real terminal/claude cwds leak into claim-one.
+    export SPORK_PROC_SWEEP="" SPORK_PROC_SWEEP_LOADED=1
     mkdir -p "$CLAUDE_PROJECTS_DIR"
     ln -s "$SPORK_REPO" "$WS/.spork"
     mkdir -p "$WS/.spork.local"

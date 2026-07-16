@@ -25,6 +25,10 @@ saw_ready=0
 while IFS= read -r path; do
     is_ready "$path" || continue
     saw_ready=1
+    # Ready by git state isn't free: a hand-launched claude or a terminal
+    # parked in the clone never creates a claim, so check observed occupancy
+    # too before racing for the claim (see "Live-process detection" in _lib).
+    clone_occupied "$path" && continue
     name=$(basename "${path%/}")
     if try_claim "$name" "$owner"; then
         printf '%s\n' "${path%/}"

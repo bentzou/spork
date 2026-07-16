@@ -28,6 +28,17 @@ path="$BASE_DIR/$name"
 
 [[ -d "$path" ]] || { echo "No such clone: $name (try \`just status\`)." >&2; exit 1; }
 
+# try_claim below refuses a clone held by another live *claim*; also refuse
+# when a claude is observably running there without one (hand-launched, so it
+# never claimed). A bare terminal parked in the clone is fine — you're
+# deliberately returning here, and that shell may well be your own.
+if proc_attached "$path" claude; then
+    echo "$name is in use — a Claude session is already running in it, and only" >&2
+    echo "one can run per clone. Exit that session (or pick a clone that's free in" >&2
+    echo "\`just log\` / \`just status\`) and retry." >&2
+    exit 1
+fi
+
 if try_claim "$name" "$owner"; then
     printf '%s\n' "$path"
     exit 0

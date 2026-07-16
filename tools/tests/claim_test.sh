@@ -44,6 +44,10 @@ trap cleanup EXIT
 make_workspace() {
     local n_ready="$1" i
     WS=$(mktemp -d)
+    # Seed the process sweep as already-loaded-and-empty so occupancy is
+    # hermetic (no real terminal/claude cwds leak in). Tests inject fake
+    # processes by overwriting SPORK_PROC_SWEEP.
+    export SPORK_PROC_SWEEP="" SPORK_PROC_SWEEP_LOADED=1
     ln -s "$SPORK_REPO" "$WS/.spork"
     mkdir -p "$WS/.spork.local"
     cat > "$WS/.spork.local/config" <<EOF
@@ -69,6 +73,16 @@ make_clone() {
 
 # Run a spork tool the way production does: from the workspace via ./.spork.
 tool() { local t="$1"; shift; ( cd "$WS" && "./.spork/tools/$t" "$@" ); }
+
+# Inject a fake process sweep: sweep [<cmd> <path>]... (no args clears it).
+sweep() {
+    local out=""
+    while (( $# )); do
+        out+="${out:+$'\n'}$1"$'\t'"$2"
+        shift 2
+    done
+    export SPORK_PROC_SWEEP="$out"
+}
 
 # ---------------------------------------------------------------------------
 echo "unit: try_claim / release_claim / staleness"
@@ -98,6 +112,73 @@ make_workspace 3
     release_claim p2 "$b"; check "non-owner release refused" 1 $?
     kill "$a" "$b" 2>/dev/null
 ) || bad "unit subshell errored"
+
+# ---------------------------------------------------------------------------
+echo "unit: proc_attached / clone_occupied see live processes, not just claims"
+make_workspace 3
+( cd "$WS" && . ./.spork/tools/_lib.sh
+
+    SPORK_PROC_SWEEP=$(printf 'zsh\t%s/p1/deep/dir\nclaude\t%s/p2' "$WS" "$WS")
+
+    proc_attached "$WS/p1";        check "shell in subdir attaches" 0 $?
+    proc_attached "$WS/p1" claude; check "command filter excludes shells" 1 $?
+    proc_attached "$WS/p2" claude; check "command filter matches claude" 0 $?
+    proc_attached "$WS/p3";        check "untouched clone unattached" 1 $?
+    proc_attached "$WS/p";         check "path prefix alone does not attach" 1 $?
+
+    clone_occupied "$WS/p1"; check "process alone occupies (no claim)" 0 $?
+    clone_occupied "$WS/p3"; check "no claim, no process -> free" 1 $?
+) || bad "unit subshell errored"
+
+# ---------------------------------------------------------------------------
+echo "unit: spork_proc_sweep joins pgrep names with lsof cwds"
+( cd "$WS" && . ./.spork/tools/_lib.sh
+    # Stub the probes: pgrep answers per command name (last arg), lsof prints
+    # -F pn records. The join must label each cwd with the pgrep-side name —
+    # lsof's own command field is useless for claude (its executable is a bare
+    # version number like "2.1.211").
+    pgrep() { local name; eval 'name=${'$#'}'
+        case "$name" in
+            claude) printf '11\n' ;;
+            zsh)    printf '22\n33\n' ;;
+            *)      return 1 ;;
+        esac
+    }
+    lsof() { printf 'p11\nfcwd\nn/ws/p1\np22\nfcwd\nn/ws/p2/sub\np33\nfcwd\nn/elsewhere\n'; }
+
+    out=$(spork_proc_sweep)
+    expected=$(printf 'claude\t/ws/p1\nzsh\t/ws/p2/sub\nzsh\t/elsewhere')
+    check "sweep labels cwds by pgrep name" "$expected" "$out"
+
+    # No live processes at all -> empty sweep, success (occupancy degrades
+    # to claims-only).
+    pgrep() { return 1; }
+    out=$(spork_proc_sweep); rc=$?
+    check "no processes -> empty sweep" "" "$out"
+    check "no processes -> exit 0" 0 "$rc"
+) || bad "sweep subshell errored"
+
+# ---------------------------------------------------------------------------
+echo "integration: claim.sh / pick-ready.sh skip clones someone is sitting in"
+make_workspace 2
+sweep zsh "$WS/p1"
+c1=$(tool claim.sh "$(live_pid)"); check "claim skips occupied p1 -> p2" "$WS/p2" "$c1"
+out=$(tool claim.sh "$(live_pid)" 2>&1); rc=$?
+check "p1 occupied, p2 claimed -> exhausted" 1 "$rc"
+g=$(tool pick-ready.sh 2>/dev/null); check "pick-ready finds nothing either" "" "$g"
+sweep
+g=$(tool pick-ready.sh); check "sweep cleared -> p1 pickable again" "$WS/p1" "$g"
+
+echo "integration: claim-one refuses a live claude, tolerates a bare shell"
+make_workspace 2
+sweep claude "$WS/p1"
+out=$(tool claim-one.sh p1 "$(live_pid)" 2>&1); rc=$?
+check "hand-launched claude -> refused" 1 "$rc"
+case "$out" in *"in use"*) ok "refusal explains why";; *) bad "refusal explains why (got [$out])";; esac
+# A bare terminal parked in the clone is fine — it may well be the caller.
+sweep zsh "$WS/p2"
+c=$(tool claim-one.sh p2 "$(live_pid)"); check "bare shell -> allowed" "$WS/p2" "$c"
+sweep
 
 # ---------------------------------------------------------------------------
 echo "integration: claim.sh hands out distinct clones, then exhausts"

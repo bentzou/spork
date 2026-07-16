@@ -17,6 +17,8 @@
 #           is_ready — true if a clone is on trunk, clean, and in sync.
 #           clone_occupied / try_claim / release_claim — clone occupancy via
 #           live-PID claims under CLAIMS_DIR (see "Claims" below).
+#           spork_procs / proc_attached — live claude/shell processes cwd'd
+#           in a clone (see "Live-process detection" below).
 
 # Variables are consumed by sourcing scripts; shellcheck would otherwise flag
 # them as unused.
@@ -106,12 +108,81 @@ is_ready() {
     (( ahead == 0 && behind == 0 ))
 }
 
+# Live-process detection
+# ----------------------
+# A claim (below) records *intent*: a wrapper reserved the clone before
+# opening a session. Process detection records *observation*: someone is
+# actually sitting in the clone — a hand-launched claude, or a terminal cd'd
+# into it — neither of which creates a claim. Occupancy (clone_occupied) is
+# the OR of the two, so status-all, pick-ready, and claim.sh all answer
+# "can I grab this?" the same way, even for sessions opened outside
+# `jc`/`just claude`.
+#
+# The sweep is one pgrep+lsof pass over the commands worth watching (claude
+# plus interactive shells; override SPORK_LIVE_COMMANDS in config to taste).
+# pgrep matches the name ps shows — essential, because the claude CLI's
+# executable is a bare version number ("2.1.211"), so `lsof -c claude` finds
+# nothing. lsof then reports each matched pid's cwd. Best-effort by design:
+# if pgrep or lsof fail or are missing, the sweep is empty and occupancy
+# degrades to claims-only (the pre-detection behavior).
+
+: "${SPORK_LIVE_COMMANDS:=claude zsh bash fish}"
+
+# One "command<TAB>cwd" line per live watched process owned by this user.
+# Costs ~1s of lsof — callers go through spork_procs, which caches.
+spork_proc_sweep() {
+    local c pid uid pairs="" pids=""
+    uid=$(id -u)
+    for c in $SPORK_LIVE_COMMANDS; do
+        while IFS= read -r pid; do
+            [[ -n "$pid" ]] || continue
+            pairs+="$pid $c"$'\n'
+            pids+="$pid,"
+        done < <(pgrep -x -u "$uid" "$c" 2>/dev/null)
+    done
+    [[ -n "$pids" ]] || return 0
+    # Join lsof's p<pid>/n<cwd> records back to the pgrep-side names.
+    awk '
+        FNR == NR { cmd[$1] = $2; next }
+        /^p/ { pid = substr($0, 2) }
+        /^n/ { print cmd[pid] "\t" substr($0, 2) }
+    ' <(printf '%s' "$pairs") <(lsof -a -d cwd -p "${pids%,}" -F pn 2>/dev/null)
+}
+
+# Cached sweep for this process, and for any subshell forked after the first
+# call (workers inherit the loaded variables). Tests pre-seed a fake sweep by
+# exporting SPORK_PROC_SWEEP alongside SPORK_PROC_SWEEP_LOADED=1.
+spork_procs() {
+    if [[ "${SPORK_PROC_SWEEP_LOADED:-0}" != 1 ]]; then
+        SPORK_PROC_SWEEP=$(spork_proc_sweep)
+        SPORK_PROC_SWEEP_LOADED=1
+    fi
+    [[ -n "$SPORK_PROC_SWEEP" ]] && printf '%s\n' "$SPORK_PROC_SWEEP"
+    return 0
+}
+
+# proc_attached <path> [command] — true if a watched live process has its cwd
+# at <path> or anywhere below it (subdir cwds count: monorepo sessions run
+# from clone subdirectories). With [command], only processes swept under that
+# name count — e.g. `proc_attached "$p" claude`: is a claude running here?
+proc_attached() {
+    local path="${1%/}" want="${2:-}" cmd cwd
+    while IFS=$'\t' read -r cmd cwd; do
+        [[ -n "$cwd" ]] || continue
+        [[ -n "$want" && "$cmd" != "$want" ]] && continue
+        [[ "$cwd" == "$path" || "$cwd" == "$path"/* ]] && return 0
+    done < <(spork_procs)
+    return 1
+}
+
 # Claims
 # ------
 # A "claim" marks a clone as in use by a live session, so two near-simultaneous
 # `jc`/`just claude` invocations can't both grab the same ready clone. A claim
 # is the directory CLAIMS_DIR/<clone-name>, holding a `pid` file with the
 # owning process. mkdir is atomic, so it doubles as the race-winning lock.
+# (Process detection above can't replace this: an lsof snapshot has a wide
+# check-to-launch window, so two concurrent grabs would both see "free".)
 #
 # A claim is "live" iff its owner PID is still running. A claim whose owner has
 # died (normal exit that skipped release, crash, SIGKILL) is stale and freely
@@ -131,10 +202,12 @@ claim_live() {
     [[ -n "$owner" ]] && kill -0 "$owner" 2>/dev/null
 }
 
-# True if a clone path is occupied (has a live claim).
+# True if a clone path is occupied: a live claim (intent) OR a watched
+# process cwd'd inside it (observation — see "Live-process detection").
 clone_occupied() {
-    local name; name=$(basename "${1%/}")
-    claim_live "$name"
+    local path="${1%/}"
+    claim_live "$(basename "$path")" && return 0
+    proc_attached "$path"
 }
 
 # Atomically claim <clone-name> for <pid>. Succeeds (0) if the clone was free
