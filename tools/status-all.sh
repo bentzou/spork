@@ -176,12 +176,22 @@ for i in "${!paths[@]}"; do
     (( ${#pr}      > pr_width ))       && pr_width=${#pr}
 done
 
-printf '%*s   %-*s   %-*s   %-*s   %-*s   %s\n' \
+# Dim the header row on a tty so the data rows carry the visual weight
+# (matching the dim sync footer). Escapes wrap the whole line, so the
+# padded widths are unaffected; non-tty output stays plain.
+c_head='' c_head_reset=''
+if [[ -t 1 ]]; then
+    c_head=$'\033[2m'
+    c_head_reset=$'\033[0m'
+fi
+printf '%s%*s   %-*s   %-*s   %-*s   %-*s   %s%s\n' \
+    "$c_head" \
     "$repo_width" "REP" \
     "$session_width" "SESSION" \
     "$state_width" "STATE" \
     "$age_width" "AGE" \
-    "$pr_width" "PR" "BRANCH"
+    "$pr_width" "PR" "BRANCH" \
+    "$c_head_reset"
 
 active_idx=()
 open_idx=()
