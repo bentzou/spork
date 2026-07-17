@@ -217,13 +217,14 @@ if (( ${#active_idx[@]} > 1 )); then
     active_idx=("${sorted[@]}")
 fi
 
-c_green='' c_yellow='' c_cyan='' c_red='' c_link='' c_reset=''
+c_green='' c_yellow='' c_cyan='' c_red='' c_link='' c_branch='' c_reset=''
 if [[ -t 1 ]]; then
     c_green=$'\033[32m'
     c_yellow=$'\033[33m'
     c_cyan=$'\033[36m'
     c_red=$'\033[31m'
     c_link=$'\033[4;34m'   # underlined blue: the classic "this is a link"
+    c_branch=$'\033[35m'   # magenta: the one hue no state uses
     c_reset=$'\033[0m'
 fi
 
@@ -300,7 +301,7 @@ print_row() {
         "$sc" "$state" "$c_reset" "$state_tail" \
         "$ac" "$age" "$c_reset" "$age_tail" \
         "$pr_out" "$pr_tail" \
-        "${branch_cells[$i]}"
+        "${c_branch}${branch_cells[$i]}${c_reset}"
 }
 
 # Active clones first, then open ones (the grabbable answer) last.
