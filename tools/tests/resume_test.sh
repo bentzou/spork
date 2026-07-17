@@ -127,6 +127,32 @@ check "stale cwd -> clone root"      "$WS/p2" "$(find_session gonecwd | cut -f2)
 
 # ---------------------------------------------------------------------------
 echo
+echo "find-session: a clone name resolves to that clone's newest session"
+make_workspace 2
+
+mkdir -p "$WS/p1/src/app"
+session_for p1 ""        "aaaa0000-0000-0000-0000-000000000001" "$WS/p1"
+session_for p1 "src-app" "bbbb0000-0000-0000-0000-000000000002" "$WS/p1/src/app"
+p1_root_log="$CLAUDE_PROJECTS_DIR/${WS//\//-}-p1/aaaa0000-0000-0000-0000-000000000001.jsonl"
+p1_sub_log="$CLAUDE_PROJECTS_DIR/${WS//\//-}-p1-src-app/bbbb0000-0000-0000-0000-000000000002.jsonl"
+touch -t 202601010000 "$p1_root_log"
+
+want="p1	$WS/p1/src/app	bbbb0000-0000-0000-0000-000000000002"
+check "clone name -> newest session (cwd + id)" "$want" "$(find_session p1)"
+
+# Recency is last write, same as the status table: age the subdir session
+# and the root one wins.
+touch "$p1_root_log"
+touch -t 202601010000 "$p1_sub_log"
+check "newest by last write wins" "aaaa0000-0000-0000-0000-000000000001" "$(find_session p1 | cut -f3)"
+
+# A clone with no sessions has nothing to resume.
+check "session-less clone -> exit 1" "1" "$(find_session p2 >/dev/null 2>&1; echo $?)"
+out=$(find_session p2 2>&1 >/dev/null)
+case "$out" in *p2*) ok "error names the clone";; *) bad "error names the clone (got [$out])";; esac
+
+# ---------------------------------------------------------------------------
+echo
 echo "claim-one: claims a named clone in any git state; honors live ownership"
 make_workspace 2
 a=$(live_pid)

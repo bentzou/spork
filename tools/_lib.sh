@@ -438,6 +438,19 @@ claude_session_last_ts() {
     claude_iso_epoch "$iso"
 }
 
+# Path of a clone's newest session jsonl (by mtime), or empty when it has
+# none. The "which session was last active here?" selector, shared by the
+# status table and resume-by-clone-name.
+claude_newest_session_file() {
+    local best=0 best_file="" line mtime file
+    while IFS= read -r line; do
+        mtime="${line%% *}"
+        file="${line#* }"
+        (( mtime > best )) && { best=$mtime; best_file=$file; }
+    done < <(claude_clone_session_files "$1")
+    printf '%s' "$best_file"
+}
+
 # Newest session for any cwd inside a clone, as "<epoch>|<title>". The file
 # is picked by mtime (cheap, one stat sweep), but the epoch reported is the
 # last record timestamp inside it — the last real interaction — falling back
@@ -445,17 +458,12 @@ claude_session_last_ts() {
 # the clone has no sessions. One claude_session_scan pass supplies both the
 # epoch and the title.
 claude_newest_session() {
-    local best=0 best_file="" line mtime file iso tline ts
-    while IFS= read -r line; do
-        mtime="${line%% *}"
-        file="${line#* }"
-        (( mtime > best )) && { best=$mtime; best_file=$file; }
-    done < <(claude_clone_session_files "$1")
-
-    if (( best > 0 )); then
-        { IFS= read -r iso; IFS= read -r tline; } < <(claude_session_scan "$best_file")
+    local file iso tline ts
+    file=$(claude_newest_session_file "$1")
+    if [[ -n "$file" ]]; then
+        { IFS= read -r iso; IFS= read -r tline; } < <(claude_session_scan "$file")
         ts=$(claude_iso_epoch "$iso")
-        [[ -n "$ts" ]] || ts=$best
+        [[ -n "$ts" ]] || ts=$(stat -f %m "$file" 2>/dev/null)
         printf '%s|%s' "$ts" "$(claude_title_parse "$tline")"
     else
         printf '|'

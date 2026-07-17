@@ -1,8 +1,9 @@
 #!/bin/bash
-# find-session.sh — resolve a session id (or the short id shown by `just log`)
-# to everything `just resume` needs to reopen it.
+# find-session.sh — resolve a session id (or the short id shown by `just
+# log`), or a clone name (its newest session), to everything `just resume`
+# needs to reopen it.
 #
-# Usage: find-session.sh <id-or-prefix>
+# Usage: find-session.sh <id-or-prefix-or-clone-name>
 # Output: one TAB-separated line on stdout: <clone-name>\t<cwd>\t<full-session-id>
 #   clone-name — the pool clone the session lives in (what resume claims).
 #   cwd        — the directory the session was launched from, read from the
@@ -37,20 +38,35 @@ session_cwd() {
     printf '%s' "$cwd"
 }
 
-# Collect every session whose id starts with the query, as "id\tclone" lines.
-# UUID/short ids contain no glob metacharacters, so the prefix case is literal.
 matches=()
-while IFS= read -r path; do
-    name=$(basename "${path%/}")
-    while IFS= read -r line; do
-        [[ -n "$line" ]] || continue
-        file="${line#* }"
-        id="${file##*/}"; id="${id%.jsonl}"
-        case "$id" in
-            "$query"*) matches+=("$id"$'\t'"$name") ;;
-        esac
-    done < <(claude_clone_session_files "$path")
-done < <(spork_clones)
+if [[ -d "$BASE_DIR/$query" && "$(clone_origin_url "$BASE_DIR/$query")" == "$ORIGIN_URL" ]]; then
+    # The query names a pool clone: resume its newest session (by last
+    # write, the same recency the status table shows). Clone names and id
+    # prefixes can't collide — session ids are hex UUIDs.
+    newest=$(claude_newest_session_file "$BASE_DIR/$query")
+    if [[ -z "$newest" ]]; then
+        echo "No sessions recorded for clone '$query' — nothing to resume." >&2
+        echo "Run \`just log\` for sessions, or \`just claude\` to start fresh." >&2
+        exit 1
+    fi
+    id="${newest##*/}"; id="${id%.jsonl}"
+    matches+=("$id"$'\t'"$query")
+else
+    # Collect every session whose id starts with the query, as "id\tclone"
+    # lines. UUID/short ids contain no glob metacharacters, so the prefix
+    # case is literal.
+    while IFS= read -r path; do
+        name=$(basename "${path%/}")
+        while IFS= read -r line; do
+            [[ -n "$line" ]] || continue
+            file="${line#* }"
+            id="${file##*/}"; id="${id%.jsonl}"
+            case "$id" in
+                "$query"*) matches+=("$id"$'\t'"$name") ;;
+            esac
+        done < <(claude_clone_session_files "$path")
+    done < <(spork_clones)
+fi
 
 if (( ${#matches[@]} == 0 )); then
     echo "No session matching '$query' in any clone under $BASE_DIR." >&2

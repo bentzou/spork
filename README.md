@@ -145,7 +145,7 @@ The recipes in `spork.just` wrap the scripts in `tools/`:
 | `just clone` | Create the next `<CLONE_PREFIX><N>` clone, wired to the mirror. No network. |
 | `just go` | Print the path of the first open (ready, unoccupied) clone (for shell `cd`). |
 | `just claude` | Claim the first open clone and start Claude in it. |
-| `just resume <id>` | Reopen a Claude session from `just log` by its ID, in its clone. |
+| `just resume <id\|name>` | Reopen a Claude session by `just log` ID — or a clone's latest by name. |
 | `just clean <name>` | Return a clone to `open`: latest trunk, clean tree, branches kept. |
 
 ## "Ready" definition
@@ -291,6 +291,10 @@ more characters only if it's ambiguous):
 ```
 $ just resume feb693a8
 ```
+
+A clone name works too — `just resume p3` reopens whatever session was
+most recently active in p3 (same last-write recency the status table
+shows), so "get me back into p3" needs no trip through `just log`.
 
 It finds the clone the session belongs to, claims it for your shell (the
 same self-freeing claim as `just claude`, released when you exit), and runs

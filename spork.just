@@ -49,9 +49,10 @@ release clone owner:
 go:
     @./.spork/tools/pick-ready.sh
 
-# ID is a session id or the short id from `just log`. Claims that session's
+# ID is a session id (or short id from `just log`), or a clone name like p3
+# to resume whatever session was last active there. Claims that session's
 # clone for this shell (self-frees on exit), then resumes it in its launch dir.
-# Resume a Claude session from `just log` by its ID.
+# Resume a Claude session by `just log` ID — or by clone name (its latest).
 [group('use')]
 resume id:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
