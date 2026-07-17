@@ -45,6 +45,11 @@ else
     printf 'mirror: failed: %s\n' "$(echo "$mirror_out" | head -1)" >> "$LOG_FILE"
 fi
 
+# Step 1.5: refresh the branch->PR cache for status's PR column, in the
+# background alongside the fanout — it's a network call (gh) and strictly
+# best-effort (pr-map.sh always exits 0, logging why when it can't run).
+"$SPORK_DIR/tools/pr-map.sh" >> "$LOG_FILE" 2>&1 &
+
 # Step 2: parallel local fanout.
 paths=()
 while IFS= read -r line; do paths+=("$line"); done < <(spork_clones)

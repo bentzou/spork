@@ -202,7 +202,7 @@ is what keeps the table honest.
 ## Status table columns
 
 ```
-REPO  SESSION  STATE  AGE  BRANCH
+REPO  SESSION  STATE  AGE  PR  BRANCH
 ```
 
 - **STATE** — one verdict per clone: can you pick it up, and if not, why?
@@ -236,6 +236,13 @@ REPO  SESSION  STATE  AGE  BRANCH
   mid-flight on the *cache expiry* work" without opening anything. Set
   `CLAUDE_PROJECTS_DIR` to point the AGE/SESSION lookups at a non-default
   sessions root.
+- **PR** — the open PR whose head is the clone's current branch (`#4269`),
+  clickable in terminals that support OSC 8 hyperlinks (iTerm2 does;
+  others show the plain number). The mapping comes from a cache `just
+  sync` refreshes via `gh pr list` — status itself never touches the
+  network — plus the `pr-<n>` branch-name convention, which needs no
+  cache. Blank when the branch has no open PR; the whole feature quietly
+  disables itself without a GitHub origin or an authed `gh`.
 - **BRANCH** — the clone's current branch. It's the trailing column (a
   branch name has no spaces, so it's safe to leave unpadded after the
   free-text SESSION title).

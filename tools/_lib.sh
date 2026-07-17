@@ -145,6 +145,43 @@ is_ready() {
     (( ahead == 0 && behind == 0 ))
 }
 
+# GitHub coordinates & PR lookup
+# ------------------------------
+# String-only derivations from ORIGIN_URL — no network, no git. Non-GitHub
+# remotes simply answer empty and every PR feature degrades to off.
+
+# "org/repo" when ORIGIN_URL points at github.com (scp, ssh, or https form).
+origin_repo_slug() {
+    local url="${ORIGIN_URL%.git}"
+    case "$url" in
+        git@github.com:*)       printf '%s' "${url#git@github.com:}" ;;
+        ssh://git@github.com/*) printf '%s' "${url#ssh://git@github.com/}" ;;
+        https://github.com/*)   printf '%s' "${url#https://github.com/}" ;;
+    esac
+}
+
+# The repo's web page (https://github.com/org/repo).
+origin_web_url() {
+    local slug; slug=$(origin_repo_slug)
+    [[ -n "$slug" ]] && printf 'https://github.com/%s' "$slug"
+    return 0
+}
+
+# PR number for a branch, or empty. Two sources, no network: the cache
+# pr-map.sh wrote during the last `just sync` ("<branch>\t<number>" lines,
+# checked first so it stays authoritative), then the pr-<N> naming
+# convention for branches checked out from someone else's PR.
+pr_for_branch() {
+    local branch="$1" b n
+    if [[ -f "$RUNTIME_DIR/pr-map" ]]; then
+        while IFS=$'\t' read -r b n; do
+            if [[ "$b" == "$branch" ]]; then printf '%s' "$n"; return 0; fi
+        done < "$RUNTIME_DIR/pr-map"
+    fi
+    [[ "$branch" =~ ^pr-([0-9]+)$ ]] && printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+}
+
 # Live-process detection
 # ----------------------
 # A claim (below) records *intent*: a wrapper reserved the clone before

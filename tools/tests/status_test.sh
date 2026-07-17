@@ -240,6 +240,24 @@ check "in sync with upstream -> open" "open" "$(state_of p3)"
 
 # ---------------------------------------------------------------------------
 echo
+echo "status: PR column maps branches to PR numbers (cache + pr-<n> names)"
+
+make_workspace 2
+mkdir -p "$WS/.spork.local/runtime"
+printf 'feature\t123\n' > "$WS/.spork.local/runtime/pr-map"
+
+# pX sits on `feature`, which the sync-time cache maps to PR 123.
+check "cached branch shows its PR" "#123" "$(field_of PR pX)"
+# A pr-<n> checkout needs no cache: the number is in the branch name.
+git -C "$WS/p1" checkout -q -b pr-4567
+check "pr-<n> branch shows its number" "#4567" "$(field_of PR p1)"
+# Open clones on trunk have no PR: the cell stays blank.
+check "open trunk clone -> blank PR" "" "$(field_of PR p2)"
+# PR renders as its own column, just before the trailing BRANCH.
+check "PR sits before BRANCH" "PR BRANCH" "$(status | head -1 | awk '{print $(NF-1), $NF}')"
+
+# ---------------------------------------------------------------------------
+echo
 echo "status: rows are ordered naturally (p10 after p9, not after p1)"
 
 # A fresh workspace with >9 ready clones exposes lexicographic vs natural order:

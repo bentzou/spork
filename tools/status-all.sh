@@ -80,6 +80,7 @@ repo_width=3     # min for "REP" header
 session_width=7  # min for "SESSION" header
 state_width=5    # min for "STATE" header
 age_width=3      # min for "AGE" header
+pr_width=2       # min for "PR" header
 now=$(date +%s)
 
 # Each clone's probes (git status over a large tree, session-log stat) are
@@ -120,7 +121,7 @@ SPORK_PROC_SWEEP=$(cat "$tmp/procs")
 # shellcheck disable=SC2034
 SPORK_PROC_SWEEP_LOADED=1
 
-declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
+declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=() pr_cells=()
 for i in "${!paths[@]}"; do
     name=$(basename "${paths[$i]}")
     # Read back the four fields this clone's worker wrote, in order.
@@ -154,24 +155,33 @@ for i in "${!paths[@]}"; do
         (( ${#session} > SESSION_MAX )) && session="${session:0:SESSION_MAX-1}…"
     fi
 
+    # The branch's PR, from the sync-time gh cache or the pr-<n> naming
+    # convention (see pr_for_branch). Branches without one stay blank.
+    pr=""
+    pr_num=$(pr_for_branch "$branch")
+    [[ -n "$pr_num" ]] && pr="#$pr_num"
+
     name_cells+=("$name")
     branch_cells+=("$branch")
     state_cells+=("$state")
     age_cells+=("$age")
     last_epoch_cells+=("$last_epoch")
     session_cells+=("$session")
+    pr_cells+=("$pr")
 
     (( ${#name}    > repo_width ))    && repo_width=${#name}
     (( ${#session} > session_width )) && session_width=${#session}
     (( ${#state}   > state_width ))   && state_width=${#state}
     (( ${#age}     > age_width ))      && age_width=${#age}
+    (( ${#pr}      > pr_width ))       && pr_width=${#pr}
 done
 
-printf '%*s   %-*s   %-*s   %-*s   %s\n' \
+printf '%*s   %-*s   %-*s   %-*s   %-*s   %s\n' \
     "$repo_width" "REP" \
     "$session_width" "SESSION" \
     "$state_width" "STATE" \
-    "$age_width" "AGE" "BRANCH"
+    "$age_width" "AGE" \
+    "$pr_width" "PR" "BRANCH"
 
 active_idx=()
 open_idx=()
@@ -206,6 +216,13 @@ if [[ -t 1 ]]; then
     c_reset=$'\033[0m'
 fi
 
+# PR cells become OSC 8 hyperlinks on a terminal with a GitHub origin —
+# terminals without hyperlink support ignore the escapes and show the plain
+# number. Non-tty output (tests, pipes) gets bare text.
+web_url=$(origin_web_url)
+use_links=0
+[[ -t 1 && -n "$web_url" ]] && use_links=1
+
 # Color the STATE word by meaning, not the whole row.
 state_color() {
     case "$1" in
@@ -239,26 +256,37 @@ print_row() {
     local session="${session_cells[$i]}"
     local state="${state_cells[$i]}"
     local age="${age_cells[$i]}"
+    local pr="${pr_cells[$i]}"
 
     local sc; sc=$(state_color "$state")
     local ac=""; [[ -n "$age" ]] && ac=$(age_color "${last_epoch_cells[$i]}")
 
-    local name_pad state_pad age_pad
+    local name_pad state_pad age_pad pr_pad
     printf -v name_pad  '%-*s' "$repo_width"  "$name"
     printf -v state_pad '%-*s' "$state_width" "$state"
     printf -v age_pad   '%-*s' "$age_width"   "$age"
+    printf -v pr_pad    '%-*s' "$pr_width"    "$pr"
     local name_tail="${name_pad:${#name}}"
     local state_tail="${state_pad:${#state}}"
     local age_tail="${age_pad:${#age}}"
+    local pr_tail="${pr_pad:${#pr}}"
+
+    # Clickable when the terminal supports OSC 8; padding counts only the
+    # visible "#123", like the color escapes above.
+    local pr_out="$pr"
+    if [[ -n "$pr" ]] && (( use_links )); then
+        pr_out=$'\033]8;;'"$web_url/pull/${pr#\#}"$'\033\\'"$pr"$'\033]8;;\033\\'
+    fi
 
     local sess_pad=$(( session_width - ${#session} ))
     (( sess_pad < 0 )) && sess_pad=0
 
-    printf '%s%s%s%s   %s%*s   %s%s%s%s   %s%s%s%s   %s\n' \
+    printf '%s%s%s%s   %s%*s   %s%s%s%s   %s%s%s%s   %s%s   %s\n' \
         "$name_tail" "$sc" "$name" "$c_reset" \
         "$session" "$sess_pad" "" \
         "$sc" "$state" "$c_reset" "$state_tail" \
         "$ac" "$age" "$c_reset" "$age_tail" \
+        "$pr_out" "$pr_tail" \
         "${branch_cells[$i]}"
 }
 
