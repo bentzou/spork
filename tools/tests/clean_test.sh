@@ -1,19 +1,20 @@
 #!/bin/bash
-# reset_test.sh — tests for reset.sh: take a clone back to a pristine `open`
-# state (trunk, clean tree, no stray branches), refusing to destroy unpushed
-# work unless --force, and refusing occupied clones outright.
+# clean_test.sh — tests for clean.sh: take a clone back to an `open` state
+# (latest trunk, clean working tree) while leaving local branches alone,
+# refusing to discard uncommitted/unpushed-trunk work unless --force, and
+# refusing occupied clones outright.
 #
 # Same harness style as claim_test.sh: a throwaway workspace with real git
 # clones, .spork symlinked at the repo under test. No network, no mirror.
 #
-#   tools/tests/reset_test.sh
+#   tools/tests/clean_test.sh
 #
 # Exits non-zero if any assertion fails.
 
 set -uo pipefail
 
 SPORK_REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-ORIGIN_URL_FIXTURE="test:reset/fixture.git"
+ORIGIN_URL_FIXTURE="test:clean/fixture.git"
 
 FAILFILE=$(mktemp)
 ok()    { printf '  ok   %s\n' "$1"; }
@@ -51,7 +52,7 @@ EOF
 }
 
 tool()  { local t="$1"; shift; ( cd "$WS" && "./.spork/tools/$t" "$@" ); }
-reset() { tool reset.sh "$@"; }
+clean() { tool clean.sh "$@"; }
 # Commit helper with fixture identity.
 gc() { local p="$1"; shift; git -C "$WS/$p" -c user.email=t@t -c user.name=t "$@"; }
 
@@ -68,83 +69,80 @@ sweep() {
 }
 
 # ---------------------------------------------------------------------------
-echo "reset: validation and occupancy guards"
+echo "clean: validation and occupancy guards"
 make_workspace 3
 
-out=$(reset nope 2>&1); rc=$?
+out=$(clean nope 2>&1); rc=$?
 check "unknown clone -> error" 1 "$rc"
 
 mkdir "$WS/notaclone"
-out=$(reset notaclone 2>&1); rc=$?
+out=$(clean notaclone 2>&1); rc=$?
 check "dir that isn't a clone of ORIGIN_URL -> error" 1 "$rc"
 
 sweep zsh "$WS/p1"
-out=$(reset p1 --force 2>&1); rc=$?
+out=$(clean p1 --force 2>&1); rc=$?
 check "occupied clone refused even with --force" 1 "$rc"
 case "$out" in *"in use"*) ok "occupied refusal explains why";; *) bad "occupied refusal explains why (got [$out])";; esac
 sweep
 
 # ---------------------------------------------------------------------------
 echo
-echo "reset: clean trunk clone is a cheap no-op"
-reset p1 >/dev/null 2>&1; rc=$?
-check "clean clone resets fine" 0 "$rc"
+echo "clean: pristine trunk clone is a cheap no-op"
+clean p1 >/dev/null 2>&1; rc=$?
+check "pristine clone cleans fine" 0 "$rc"
 check "still on trunk" "main" "$(git -C "$WS/p1" rev-parse --abbrev-ref HEAD)"
 
 # ---------------------------------------------------------------------------
 echo
-echo "reset: uncommitted work needs --force"
+echo "clean: uncommitted work needs --force"
 : > "$WS/p1/wip.txt"
-out=$(reset p1 2>&1); rc=$?
+out=$(clean p1 2>&1); rc=$?
 check "dirty tree refused without --force" 1 "$rc"
 check "refusal left the file alone" 0 "$(exists "$WS/p1/wip.txt")"
 case "$out" in *--force*) ok "hint mentions --force";; *) bad "hint mentions --force (got [$out])";; esac
 
-reset p1 --force >/dev/null 2>&1; rc=$?
+clean p1 --force >/dev/null 2>&1; rc=$?
 check "dirty tree cleaned with --force" 0 "$rc"
 check "working tree clean after" "" "$(git -C "$WS/p1" status --porcelain)"
 
 # ---------------------------------------------------------------------------
 echo
-echo "reset: branch policy — merged branches go quietly, unmerged need --force"
+echo "clean: local branches are never touched"
 
-# A merged branch (same tip as trunk) is deleted without ceremony.
-git -C "$WS/p1" branch done-work
-reset p1 >/dev/null 2>&1; rc=$?
-check "merged branch: reset succeeds" 0 "$rc"
-check "merged branch deleted" "main" "$(git -C "$WS/p1" for-each-ref refs/heads --format='%(refname:short)' | tr '\n' ' ' | xargs)"
-
-# An unmerged branch (unique commit) blocks, and survives the refusal.
+# A checked-out branch with unique commits is NOT a loss — the branch ref
+# keeps its work — so no --force is needed; clean just returns to trunk.
 git -C "$WS/p2" checkout -q -b feat
-gc p2 commit -q --allow-empty -m "unpushed work"
-out=$(reset p2 2>&1); rc=$?
-check "unmerged branch refused without --force" 1 "$rc"
-case "$out" in *feat*) ok "refusal names the branch";; *) bad "refusal names the branch (got [$out])";; esac
-git -C "$WS/p2" rev-parse -q --verify feat >/dev/null; check "branch survives refusal" 0 $?
-
-reset p2 --force >/dev/null 2>&1; rc=$?
-check "unmerged branch: --force resets" 0 "$rc"
+gc p2 commit -q --allow-empty -m "branch work"
+clean p2 >/dev/null 2>&1; rc=$?
+check "branch checkout cleans without --force" 0 "$rc"
 check "back on trunk" "main" "$(git -C "$WS/p2" rev-parse --abbrev-ref HEAD)"
-git -C "$WS/p2" rev-parse -q --verify feat >/dev/null; check "branch deleted under --force" 1 $?
+git -C "$WS/p2" rev-parse -q --verify feat >/dev/null; check "branch survives the clean" 0 $?
+check "branch tip untouched" "branch work" "$(git -C "$WS/p2" log -1 --format=%s feat)"
+
+# Merged branches survive too — clean deletes nothing.
+git -C "$WS/p1" branch done-work
+clean p1 >/dev/null 2>&1; rc=$?
+check "merged branch: clean succeeds" 0 "$rc"
+git -C "$WS/p1" rev-parse -q --verify done-work >/dev/null; check "merged branch also kept" 0 $?
 
 # ---------------------------------------------------------------------------
 echo
-echo "reset: snaps trunk to origin's tracking ref when one exists"
+echo "clean: snaps trunk to origin's tracking ref when one exists"
 
 # Simulate a fetched origin/main, then advance local main past it: those
 # trunk commits exist nowhere else, so they're unpushed work -> --force.
 shaA=$(git -C "$WS/p3" rev-parse HEAD)
 git -C "$WS/p3" update-ref refs/remotes/origin/main "$shaA"
 gc p3 commit -q --allow-empty -m "unpushed trunk commit"
-out=$(reset p3 2>&1); rc=$?
+out=$(clean p3 2>&1); rc=$?
 check "trunk ahead of origin refused without --force" 1 "$rc"
-reset p3 --force >/dev/null 2>&1; rc=$?
+clean p3 --force >/dev/null 2>&1; rc=$?
 check "--force snaps to origin ref" 0 "$rc"
 check "HEAD == origin/main" "$shaA" "$(git -C "$WS/p3" rev-parse HEAD)"
 
 # ---------------------------------------------------------------------------
 echo
-echo "reset: --full also wipes ignored files and reruns POST_CLONE"
+echo "clean: --full also wipes ignored files and reruns POST_CLONE"
 make_workspace 1
 
 # A tracked .gitignore plus an ignored artifact (a stand-in for node_modules).
@@ -153,31 +151,31 @@ gc p1 add .gitignore
 gc p1 commit -q -m "add gitignore"
 echo artifact > "$WS/p1/build.out"
 
-reset p1 >/dev/null 2>&1; rc=$?
-check "default reset succeeds around ignored file" 0 "$rc"
+clean p1 >/dev/null 2>&1; rc=$?
+check "default clean succeeds around ignored file" 0 "$rc"
 check "ignored file kept by default" 0 "$(exists "$WS/p1/build.out")"
 check "POST_CLONE not run by default" 1 "$(exists "$WS/p1/.pc-ran")"
 
-reset p1 --full >/dev/null 2>&1; rc=$?
-check "--full reset succeeds" 0 "$rc"
+clean p1 --full >/dev/null 2>&1; rc=$?
+check "--full clean succeeds" 0 "$rc"
 check "--full wipes ignored file" 1 "$(exists "$WS/p1/build.out")"
 check "--full reruns POST_CLONE" 0 "$(exists "$WS/p1/.pc-ran")"
 
 # ---------------------------------------------------------------------------
 echo
-echo "reset: detached HEAD comes back to trunk"
+echo "clean: detached HEAD comes back to trunk"
 make_workspace 1
 git -C "$WS/p1" checkout -q --detach
-reset p1 >/dev/null 2>&1; rc=$?
-check "detached HEAD reset succeeds" 0 "$rc"
+clean p1 >/dev/null 2>&1; rc=$?
+check "detached HEAD clean succeeds" 0 "$rc"
 check "back on trunk" "main" "$(git -C "$WS/p1" rev-parse --abbrev-ref HEAD)"
 
 # ---------------------------------------------------------------------------
 echo
-echo "reset: a broken clone gets a re-clone hint, not a half-reset"
+echo "clean: a broken clone gets a re-clone hint, not a half-clean"
 make_workspace 1
 echo garbage > "$WS/p1/.git/HEAD"
-out=$(reset p1 --force 2>&1); rc=$?
+out=$(clean p1 --force 2>&1); rc=$?
 check "broken clone -> error" 1 "$rc"
 case "$out" in *clone*) ok "hint suggests re-cloning";; *) bad "hint suggests re-cloning (got [$out])";; esac
 

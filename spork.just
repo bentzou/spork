@@ -73,13 +73,14 @@ log *n:
 pull:
     @./.spork/tools/pull-all.sh
 
-# NAME is a clone name or path. Refuses occupied clones; refuses to destroy
-# uncommitted/unpushed work without --force; --full also wipes ignored files
-# (node_modules etc.) and reruns POST_CLONE.
-# Reset a clone to pristine open: trunk @ origin, clean tree, no branches.
+# NAME is a clone name or path. Local branches are kept. Refuses occupied
+# clones; refuses to discard uncommitted changes or unpushed trunk commits
+# without --force; --full also wipes ignored files (node_modules etc.) and
+# reruns POST_CLONE.
+# Clean a clone back to open: latest trunk, clean tree; branches kept.
 [group('manage')]
-reset name *flags:
-    @./.spork/tools/reset.sh "{{name}}" {{flags}}
+clean name *flags:
+    @./.spork/tools/clean.sh "{{name}}" {{flags}}
 
 # One-line status per clone (no network).
 [group('manage')]
