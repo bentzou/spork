@@ -1,5 +1,5 @@
 #!/bin/bash
-# restart_test.sh — tests for the two tools behind `just restart`:
+# resume_test.sh — tests for the two tools behind `just resume`:
 #   find-session.sh — resolve an id/prefix to "<clone>\t<cwd>\t<full-id>"
 #   claim-one.sh    — claim a NAMED clone (any git state) for an owner
 #
@@ -9,14 +9,14 @@
 # claim owners. No network, no mirror, and `claude` itself is never launched —
 # these cover everything up to the resume handoff.
 #
-#   tools/tests/restart_test.sh
+#   tools/tests/resume_test.sh
 #
 # Exits non-zero if any assertion fails.
 
 set -uo pipefail
 
 SPORK_REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-ORIGIN_URL_FIXTURE="test:restart/fixture.git"
+ORIGIN_URL_FIXTURE="test:resume/fixture.git"
 
 FAILFILE=$(mktemp)
 ok()    { printf '  ok   %s\n' "$1"; }

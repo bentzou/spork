@@ -53,7 +53,7 @@ go:
 # clone for this shell (self-frees on exit), then resumes it in its launch dir.
 # Resume a Claude session from `just log` by its ID.
 [group('use')]
-restart id:
+resume id:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
      found=$(./.spork/tools/find-session.sh "{{id}}") || exit 1; \
      IFS=$'\t' read -r name cwd sid <<<"$found"; \

@@ -1,10 +1,10 @@
 #!/bin/bash
 # find-session.sh — resolve a session id (or the short id shown by `just log`)
-# to everything `just restart` needs to reopen it.
+# to everything `just resume` needs to reopen it.
 #
 # Usage: find-session.sh <id-or-prefix>
 # Output: one TAB-separated line on stdout: <clone-name>\t<cwd>\t<full-session-id>
-#   clone-name — the pool clone the session lives in (what restart claims).
+#   clone-name — the pool clone the session lives in (what resume claims).
 #   cwd        — the directory the session was launched from, read from the
 #                session log itself (so a monorepo subdir cwd is preserved
 #                exactly, with no lossy dir-name decoding). Falls back to the
@@ -12,7 +12,7 @@
 #   full-id    — the complete session id to hand to `claude --resume`.
 #
 # Read-only — never claims or mutates. This is the single source of truth for
-# "given an id from the log, where do I resume it and as what?", so restart and
+# "given an id from the log, where do I resume it and as what?", so resume and
 # its tests share one resolver. Exits 2 on usage error, 1 when zero or several
 # sessions match (candidates listed on stderr so you can disambiguate).
 

@@ -119,7 +119,7 @@ check "next: p1 new"                "p1|p1 new work" "$(row 3)"
 check "closed older p1 session shows" "p1|p1 old work" "$(row 4)"
 check "untitled session -> em-dash" "p3|—"         "$(row 5)"
 
-# The ID column carries the session id (the restart handle) — here the fixture
+# The ID column carries the session id (the resume handle) — here the fixture
 # ids are short, so they show verbatim; in practice it's an 8-char UUID prefix.
 check "ID column shows the session id" "d"         "$(id_of 1)"
 check "ID matches each row's session"  "c"         "$(id_of 2)"
@@ -151,7 +151,7 @@ check "no sessions -> stderr notice"   "1"  "$(log 2>&1 >/dev/null | grep -c 'No
 
 # ---------------------------------------------------------------------------
 echo
-echo "log: rows of an in-use clone are marked so you know restart will refuse"
+echo "log: rows of an in-use clone are marked so you know resume will refuse"
 
 make_workspace 3
 session_for p1 "" "p1 a" 202601020000 a

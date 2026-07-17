@@ -145,7 +145,7 @@ The recipes in `spork.just` wrap the scripts in `tools/`:
 | `just clone` | Create the next `<CLONE_PREFIX><N>` clone, wired to the mirror. No network. |
 | `just go` | Print the path of the first open (ready, unoccupied) clone (for shell `cd`). |
 | `just claude` | Claim the first open clone and start Claude in it. |
-| `just restart <id>` | Reopen a Claude session from `just log` by its ID, in its clone. |
+| `just resume <id>` | Reopen a Claude session from `just log` by its ID, in its clone. |
 | `just clean <name>` | Return a clone to `open`: latest trunk, clean tree, branches kept. |
 
 ## "Ready" definition
@@ -186,7 +186,7 @@ wrappers — you `cd` into a clone and run `claude` by hand, or just leave a
 terminal tab parked there — never create a claim, so spork also sweeps for
 live claude/shell processes whose cwd is inside a clone (one `pgrep`+`lsof`
 pass, ~1s, cached per command). Any hit marks the clone `in use`, and
-`just go` / `just claude` skip it. `just restart` refuses a clone with a
+`just go` / `just claude` skip it. `just resume` refuses a clone with a
 claude running in it, but tolerates a bare terminal — you're deliberately
 returning, and that shell may well be your own. The watched process list is
 `claude zsh bash fish`; override `SPORK_LIVE_COMMANDS` in config if your
@@ -267,14 +267,14 @@ A clone can appear on several rows — once per session you've worked in it,
 **including sessions you've already closed** (every session leaves its
 `*.jsonl` log behind). `AGE` is time since that session was last touched
 (red past 7 days); `REP` is the clone; `ID` is a short session-id handle
-(see `just restart` below); `SESSION` is its `aiTitle`, or `—` if it never
+(see `just resume` below); `SESSION` is its `aiTitle`, or `—` if it never
 got one.
 
 Rows whose clone is occupied (a live claim, or a claude/shell process
 detected inside it — see [Claims & occupancy](#claims--occupancy)) are
 marked **`(in use)`** (yellow on a terminal). A clone with a claude already
 running can't be cleanly resumed — only one Claude can run per clone — so
-`just restart` will refuse it; the marker tells you that up front, before
+`just resume` will refuse it; the marker tells you that up front, before
 you copy an id.
 
 `just log` shows the 20 most recent by default. Pass a count for more or
@@ -284,19 +284,19 @@ overridable via `CLAUDE_PROJECTS_DIR`.
 
 ### Resuming a session
 
-`just restart <id>` reopens a logged session where you left off. Copy the
-`ID` from `just log` (a prefix is fine — restart resolves it, and asks for
+`just resume <id>` reopens a logged session where you left off. Copy the
+`ID` from `just log` (a prefix is fine — resume resolves it, and asks for
 more characters only if it's ambiguous):
 
 ```
-$ just restart feb693a8
+$ just resume feb693a8
 ```
 
 It finds the clone the session belongs to, claims it for your shell (the
 same self-freeing claim as `just claude`, released when you exit), and runs
 `claude --resume` from the session's original launch directory — so a
 monorepo subdir session reopens in that subdir, not the clone root. If that
-clone is currently in use by another live session, restart refuses rather
+clone is currently in use by another live session, resume refuses rather
 than dropping a second Claude into it (the `(in use)` marker in `just log`
 flags those up front). The git state of the clone is left as-is: you return
 to whatever branch/working tree it's on now.

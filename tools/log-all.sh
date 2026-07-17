@@ -56,8 +56,8 @@ if [[ -z "$rows" ]]; then
     exit 0
 fi
 
-# Short session-id handle shown in the ID column and accepted by `just restart`.
-# A UUID prefix this wide is unique across a realistic pool; restart matches by
+# Short session-id handle shown in the ID column and accepted by `just resume`.
+# A UUID prefix this wide is unique across a realistic pool; resume matches by
 # prefix and disambiguates if two ever collide.
 ID_LEN=8
 
@@ -87,7 +87,7 @@ while IFS=$'\t' read -r mtime name file; do
 done <<< "$rows"
 
 # A clone with a live claim has a Claude session attached right now, so any of
-# its sessions can't be cleanly resumed — `just restart` would refuse, since
+# its sessions can't be cleanly resumed — `just resume` would refuse, since
 # only one Claude can run per working tree. Mark those rows so you know before
 # you reach for an id. Check occupancy once per distinct clone shown (a clone
 # spans many rows), recorded in a space-delimited set membership-tested below;
@@ -117,7 +117,7 @@ printf '%-*s   %-*s   %-*s   %s\n' \
 # Print AGE · REP · ID · SESSION. Padded columns precede the free-text SESSION;
 # color codes wrap only the visible token, so they don't shift alignment. Rows
 # whose clone is in use get a trailing "(in use)" marker (yellow on a tty,
-# plain text otherwise so it survives piping) — restart will refuse those.
+# plain text otherwise so it survives piping) — resume will refuse those.
 for i in "${!age_cells[@]}"; do
     age="${age_cells[$i]}"
     rep="${rep_cells[$i]}"
