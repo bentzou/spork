@@ -207,13 +207,13 @@ if (( ${#active_idx[@]} > 1 )); then
     active_idx=("${sorted[@]}")
 fi
 
-c_green='' c_yellow='' c_cyan='' c_red='' c_blue='' c_reset=''
+c_green='' c_yellow='' c_cyan='' c_red='' c_link='' c_reset=''
 if [[ -t 1 ]]; then
     c_green=$'\033[32m'
     c_yellow=$'\033[33m'
     c_cyan=$'\033[36m'
     c_red=$'\033[31m'
-    c_blue=$'\033[34m'
+    c_link=$'\033[4;34m'   # underlined blue: the classic "this is a link"
     c_reset=$'\033[0m'
 fi
 
@@ -272,10 +272,11 @@ print_row() {
     local age_tail="${age_pad:${#age}}"
     local pr_tail="${pr_pad:${#pr}}"
 
-    # Clickable when the terminal supports OSC 8; blue marks it as a link.
-    # Padding counts only the visible "#123", like the color escapes above.
+    # Clickable when the terminal supports OSC 8; underlined blue marks it
+    # as a link. Padding counts only the visible "#123", like the color
+    # escapes above.
     local pr_out="$pr"
-    [[ -n "$pr" ]] && pr_out="${c_blue}${pr}${c_reset}"
+    [[ -n "$pr" ]] && pr_out="${c_link}${pr}${c_reset}"
     if [[ -n "$pr" ]] && (( use_links )); then
         pr_out=$'\033]8;;'"$web_url/pull/${pr#\#}"$'\033\\'"$pr_out"$'\033]8;;\033\\'
     fi
