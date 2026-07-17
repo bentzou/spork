@@ -224,7 +224,8 @@ if [[ -t 1 ]]; then
     c_cyan=$'\033[36m'
     c_red=$'\033[31m'
     c_link=$'\033[4;34m'     # underlined blue: the classic "this is a link"
-    c_branch=$'\033[95m'     # bright magenta: visible on any theme, no bold
+    c_branch=$'\033[2;35m'   # dim magenta: tinted but recessive — branch is
+                             # context, STATE/SESSION carry the row
     c_trunk=$'\033[2m'       # dim: trunk is the baseline, let it recede
     c_reset=$'\033[0m'
 fi
