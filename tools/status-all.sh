@@ -217,14 +217,15 @@ if (( ${#active_idx[@]} > 1 )); then
     active_idx=("${sorted[@]}")
 fi
 
-c_green='' c_yellow='' c_cyan='' c_red='' c_link='' c_branch='' c_reset=''
+c_green='' c_yellow='' c_cyan='' c_red='' c_link='' c_branch='' c_trunk='' c_reset=''
 if [[ -t 1 ]]; then
     c_green=$'\033[32m'
     c_yellow=$'\033[33m'
     c_cyan=$'\033[36m'
     c_red=$'\033[31m'
-    c_link=$'\033[4;34m'   # underlined blue: the classic "this is a link"
-    c_branch=$'\033[35m'   # magenta: the one hue no state uses
+    c_link=$'\033[4;34m'     # underlined blue: the classic "this is a link"
+    c_branch=$'\033[1;35m'   # bold magenta: branch work stands out
+    c_trunk=$'\033[2m'       # dim: trunk is the baseline, let it recede
     c_reset=$'\033[0m'
 fi
 
@@ -272,6 +273,10 @@ print_row() {
 
     local sc; sc=$(state_color "$state")
     local ac=""; [[ -n "$age" ]] && ac=$(age_color "${last_epoch_cells[$i]}")
+    # Trunk recedes (dim), anything else pops (bold magenta) — the branch
+    # column's question is "is work parked here?", answered at a glance.
+    local bc="$c_branch"
+    [[ "${branch_cells[$i]}" == "$TRUNK_BRANCH" ]] && bc="$c_trunk"
 
     local name_pad state_pad age_pad pr_pad
     printf -v name_pad  '%-*s' "$repo_width"  "$name"
@@ -301,7 +306,7 @@ print_row() {
         "$sc" "$state" "$c_reset" "$state_tail" \
         "$ac" "$age" "$c_reset" "$age_tail" \
         "$pr_out" "$pr_tail" \
-        "${c_branch}${branch_cells[$i]}${c_reset}"
+        "${bc}${branch_cells[$i]}${c_reset}"
 }
 
 # Active clones first, then open ones (the grabbable answer) last.
