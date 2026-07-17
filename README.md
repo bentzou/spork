@@ -7,7 +7,7 @@ clone shares one local mirror, so clones are cheap to create and one
 background fetch updates them all.
 
 ```
-$ just status
+$ just status                                   # js
 REP  SESSION                        STATE   AGE  PR     BRANCH
 p1   Build search index syncer      in use  2m   #4269  feat/search-index-sync
 p3   Fix image cache expiry bug     parked  5d          fix/image-cache-expiry
@@ -15,14 +15,28 @@ p4   Spike: sqlite cache backend    parked  12d         main
 p5   Abstract the storage backend   in use  1d   #4301  feat/storage-interfaces
 p2                                  open                main
 p6                                  open                main
+
+$ just claude                                   # jc
+# claims p2 — the first open clone — and opens Claude Code in it;
+# p2 shows as "in use" until you exit
+
+$ just log
+AGE  REP  ID        SESSION
+2m   p1   feb693a8  Build search index syncer            (in use)
+1d   p5   4082b292  Abstract the storage backend         (in use)
+5d   p3   686c1b22  Fix image cache expiry bug
+5d   p3   a6060d87  Debug websocket reconnect backoff
+12d  p4   9c1f22e0  Spike: sqlite cache backend
+
+$ just resume p3                                # or: just resume 686c1b22
+# reopens p3's most recent session where you left off
 ```
 
-Each row answers "can I pick this clone up?" — `open` means yes; `in use`
-means someone is in it right now; `parked` means unfinished work blocks it
-(a feature branch checked out, or a dirty tree). SESSION and AGE come from
-the clone's most recent [Claude Code](https://claude.ai/code) session, so
-you can see *what* each busy clone was for without opening anything. PR
-links the branch's open pull request.
+`open` means free to grab; `in use` means someone is in it right now;
+`parked` means unfinished work is sitting there (a feature branch checked
+out, or a dirty tree). SESSION and AGE come from each clone's most recent
+[Claude Code](https://claude.ai/code) session; PR links the branch's open
+pull request. (`js`/`jc` are optional [shell shortcuts](#shell-shortcuts-optional).)
 
 ## Setup
 
