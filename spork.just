@@ -14,12 +14,16 @@
 # support rather than in alphabetical position.
 
 # $$ (this recipe's shell) owns the claim; if it dies the claim self-frees.
+# The printf stamps the clone name on the terminal title (OSC 0) so the
+# window is findable in Ghostty's Window menu immediately — Claude retitles
+# it with the session topic once one exists.
 # Claim the first ready, unclaimed clone, open Claude in it, and release on exit.
 [group('use')]
 claude:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
      path=$(./.spork/tools/claim.sh "$owner") || exit 1; \
      trap 'bash "$rel" "$path" "$owner"' EXIT; \
+     printf '\033]0;%s\007' "$(basename "$path")"; \
      cd "$path" && claude
 
 # OWNER is a long-lived PID that keeps the claim held — pass your interactive
@@ -55,6 +59,7 @@ restart id:
      IFS=$'\t' read -r name cwd sid <<<"$found"; \
      ./.spork/tools/claim-one.sh "$name" "$owner" >/dev/null || exit 1; \
      trap 'bash "$rel" "$name" "$owner"' EXIT; \
+     printf '\033]0;%s\007' "$name"; \
      cd "$cwd" && claude --resume "$sid"
 
 # Create the next clone using the local mirror (no network).

@@ -355,6 +355,8 @@ jc () {
    local p
    p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$") || return
    builtin cd "$p"
+   printf '\033]0;%s\007' "${p##*/}"   # window title = clone name, so the
+                                       # terminal's Window menu is navigable
    claude
    ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
 }
