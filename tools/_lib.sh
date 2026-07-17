@@ -314,11 +314,30 @@ claude_clone_session_files() {
     stat -f '%m %N' "${files[@]}" 2>/dev/null
 }
 
-# Newest session (by mtime) for any cwd inside a clone, as "<epoch>|<title>".
-# Both empty ("|") when the clone has no sessions. Title is read from that same
-# newest file — i.e. the session you most recently touched here.
+# Epoch of the last timestamped record in a session jsonl, or empty when no
+# record carries one. This — not mtime — is when you last interacted with the
+# session: idle claude processes rewrite their jsonl on every system wake
+# without appending records, so mtime clusters on the latest wake and lies
+# about interaction recency. Records carry ISO-8601 UTC timestamps
+# ("timestamp":"2026-07-17T07:44:49.123Z"); copies embedded in string values
+# (tool output quoting a record) arrive with escaped quotes, so a raw match
+# only hits real record fields.
+claude_session_last_ts() {
+    local file="$1" iso
+    [[ -f "$file" ]] || return 0
+    iso=$(grep -o '"timestamp":"[0-9][^"]*"' "$file" 2>/dev/null | tail -1)
+    iso="${iso#*:\"}"
+    [[ -n "$iso" ]] || return 0
+    TZ=UTC0 date -j -f '%Y-%m-%dT%H:%M:%S' "${iso:0:19}" +%s 2>/dev/null
+}
+
+# Newest session for any cwd inside a clone, as "<epoch>|<title>". The file
+# is picked by mtime (cheap, one stat sweep), but the epoch reported is the
+# last record timestamp inside it — the last real interaction — falling back
+# to mtime for logs that carry no timestamps. Both fields empty ("|") when
+# the clone has no sessions.
 claude_newest_session() {
-    local best=0 best_file="" line mtime file
+    local best=0 best_file="" line mtime file ts
     while IFS= read -r line; do
         mtime="${line%% *}"
         file="${line#* }"
@@ -326,7 +345,9 @@ claude_newest_session() {
     done < <(claude_clone_session_files "$1")
 
     if (( best > 0 )); then
-        printf '%s|%s' "$best" "$(claude_session_title "$best_file")"
+        ts=$(claude_session_last_ts "$best_file")
+        [[ -n "$ts" ]] || ts=$best
+        printf '%s|%s' "$ts" "$(claude_session_title "$best_file")"
     else
         printf '|'
     fi

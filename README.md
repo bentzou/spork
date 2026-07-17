@@ -216,12 +216,15 @@ REPO  SESSION  STATE  AGE  BRANCH
   - `pull` / `push` (yellow) — on trunk and clean, but behind/ahead of
     upstream.
   - `broken` (red) — git can't read the repo.
-- **AGE** — time since the most recent Claude session jsonl in
-  `~/.claude/projects/<encoded-path>*/*.jsonl` was written, where
+- **AGE** — time since you last interacted with the clone's most recent
+  Claude session: the last timestamped record inside the newest session
+  jsonl under `~/.claude/projects/<encoded-path>*/*.jsonl`, where
   `<encoded-path>` is the clone's absolute path with `/` → `-`. Subdir
-  sessions count too. Active rows are ordered by this same recency, most
-  recently touched first. Red once a clone hasn't been touched in ≥ 7
-  days. Blank for open clones.
+  sessions count too. (The file's mtime is deliberately not used — idle
+  claude processes rewrite their logs on every system wake, which would
+  show every idle session as "touched" minutes ago.) Active rows are
+  ordered by this same recency, most recent first. Red once a clone
+  hasn't seen interaction in ≥ 7 days. Blank for open clones.
 
   This column assumes you use [Claude Code](https://claude.ai/code) and
   reflects when you last worked in each clone with it. If you don't, the

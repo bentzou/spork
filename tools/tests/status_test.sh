@@ -263,6 +263,17 @@ check "session-less active row last among active" "1" \
 # Open clones still close the table.
 check "open rows stay last" "1" "$(( $(row_index_of pX) < $(row_index_of p3) ))"
 
+# A wake-style touch — fresh mtime, stale records — must not fake freshness:
+# when the file carries timestamped records, AGE and ordering use the last
+# one, not the mtime. Rewrite p1's log with a 1h-old record (mtime = now):
+# mtime would say "0s"; the record timestamp says "1h", and 1h < p2's 1d so
+# p1 now leads the table.
+printf '{"type":"user","timestamp":"%s","sessionId":"s"}\n{"type":"ai-title","aiTitle":"Long running work","sessionId":"s"}\n' \
+    "$(date -u -v-1H +%Y-%m-%dT%H:%M:%S.000Z)" > "$p1_file"
+check "AGE from record timestamp despite fresh mtime" "1h" "$(field_of AGE p1)"
+check "ordering follows record timestamp" "1" \
+    "$(( $(row_index_of p1) < $(row_index_of p2) ))"
+
 # ---------------------------------------------------------------------------
 echo
 nfail=$(wc -l < "$FAILFILE" | tr -d ' ')

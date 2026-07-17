@@ -47,6 +47,10 @@ cd "$WS" || exit 1
 
 # An ai-title record line. Args: title.
 title_rec() { printf '{"type":"ai-title","aiTitle":"%s","sessionId":"sid-1"}\n' "$1"; }
+# A timestamped user record. Args: ISO-8601 UTC timestamp.
+ts_rec() { printf '{"type":"user","timestamp":"%s","sessionId":"sid-1"}\n' "$1"; }
+# ISO -> epoch, the same conversion the reader must land on.
+iso_epoch() { TZ=UTC0 date -j -f '%Y-%m-%dT%H:%M:%S' "${1:0:19}" +%s; }
 
 # ---------------------------------------------------------------------------
 echo "claude_session_title: latest ai-title wins, parses unicode + escapes"
@@ -67,6 +71,33 @@ echo '{"type":"user","sessionId":"sid-1"}' > "$f"
 check "no ai-title record -> empty" "" "$(claude_session_title "$f")"
 
 check "missing file -> empty" "" "$(claude_session_title "$PROJ/nope.jsonl")"
+
+# ---------------------------------------------------------------------------
+echo
+echo "claude_session_last_ts: last timestamped record wins; mtime is ignored"
+
+f="$PROJ/ts.jsonl"
+{
+    ts_rec "2026-01-01T00:00:00.000Z"
+    ts_rec "2026-01-02T03:04:05.678Z"
+    # A trailing record with no timestamp (e.g. file-history-snapshot) must
+    # not blank the answer — the scan looks for the last record that HAS one.
+    echo '{"type":"file-history-snapshot","messageId":"m1"}'
+} > "$f"
+check "last timestamped record wins" "$(iso_epoch 2026-01-02T03:04:05)" "$(claude_session_last_ts "$f")"
+
+# An embedded, string-escaped copy (tool output quoting a record) is not a
+# real record field and must not shadow the actual last timestamp.
+{
+    ts_rec "2026-01-01T00:00:00.000Z"
+    printf '{"type":"user","toolUseResult":"saw \\"timestamp\\":\\"2027-09-09T09:09:09.000Z\\" in a log","sessionId":"sid-1"}\n'
+} > "$f"
+check "escaped timestamp in content ignored" "$(iso_epoch 2026-01-01T00:00:00)" "$(claude_session_last_ts "$f")"
+
+printf '{"type":"summary","summary":"no timestamps here"}\n' > "$f"
+check "no timestamped records -> empty" "" "$(claude_session_last_ts "$f")"
+
+check "missing file -> empty" "" "$(claude_session_last_ts "$PROJ/nope2.jsonl")"
 
 # ---------------------------------------------------------------------------
 echo
@@ -94,6 +125,19 @@ check "newest re-evaluated by mtime" "Old work" "$(claude_newest_session "$repo"
 
 # A clone with no sessions at all.
 check "no sessions -> empty pair" "|" "$(claude_newest_session "$WS/p2")"
+
+# The epoch prefers the last in-file timestamp over mtime: an idle claude
+# rewrites its jsonl on every system wake without appending records, so
+# mtime says "minutes ago" while the conversation is days old.
+{
+    ts_rec "2026-01-01T00:00:00.000Z"
+    title_rec "Wake-touched work"
+} > "$PROJ/$enc/old.jsonl"
+touch "$PROJ/$enc/old.jsonl"   # fresh mtime, like a wake-time rewrite
+rm "$PROJ/$enc-src-app/new.jsonl"
+got=$(claude_newest_session "$repo")
+check "epoch from last record timestamp, not mtime" "$(iso_epoch 2026-01-01T00:00:00)" "${got%%|*}"
+check "title still read alongside" "Wake-touched work" "${got#*|}"
 
 # ---------------------------------------------------------------------------
 echo
