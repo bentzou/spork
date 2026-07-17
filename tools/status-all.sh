@@ -16,32 +16,38 @@ SESSION_MAX=56
 
 status_for() {
     local path="$1"
-    local branch dirty_count ahead behind state porcelain
+    local branch="?" ahead=0 behind=0 dirty_count=0 state line porcelain
 
-    branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
-
-    # `git status --porcelain` exits non-zero when the repo can't read its
-    # objects (bad alternates, missing HEAD object, corrupted store).
-    # Surface that as `broken` rather than silently reporting clean.
-    if ! porcelain=$(git -C "$path" status --porcelain 2>/dev/null); then
-        echo "${branch}|broken"
+    # One `git status --porcelain=v2 --branch` answers everything the verdict
+    # needs — branch, ahead/behind vs a configured upstream, and the dirty
+    # list — in a single fork (it used to take four). It exits non-zero when
+    # the repo can't read its objects (bad alternates, missing HEAD object,
+    # corrupted store): surface that as `broken` rather than silently
+    # reporting clean.
+    if ! porcelain=$(git -C "$path" status --porcelain=v2 --branch 2>/dev/null); then
+        echo "?|broken"
         return
     fi
-    dirty_count=0
-    [[ -n "$porcelain" ]] && dirty_count=$(printf '%s\n' "$porcelain" | wc -l | tr -d ' ')
-
-    ahead=0
-    behind=0
-    if git -C "$path" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
-        read -r ahead behind < <(git -C "$path" rev-list --left-right --count 'HEAD...@{upstream}' 2>/dev/null || echo "0 0")
-    fi
+    # Header lines start with '#'; every other non-empty line is one
+    # changed/untracked entry. `branch.ab +A -B` appears only when an
+    # upstream is configured — absent means nothing to compare, i.e. in sync.
+    while IFS= read -r line; do
+        case "$line" in
+            "# branch.head "*) branch="${line#\# branch.head }" ;;
+            "# branch.ab "*)   line="${line#\# branch.ab }"
+                               ahead="${line%% *}";  ahead="${ahead#+}"
+                               behind="${line##* }"; behind="${behind#-}" ;;
+            "#"*) ;;
+            ?*)   (( dirty_count++ )) ;;
+        esac
+    done <<<"$porcelain"
+    [[ "$branch" == "(detached)" ]] && branch="HEAD"
 
     # STATE answers one question: can I pick this clone up right now, and if
-    # not, why? It's a single verdict, not two orthogonal facts — so occupancy
-    # and git state collapse into one word with a clear precedence:
+    # not, why? One verdict with a clear precedence:
     #   broken  — git can't read the repo (returned above; trumps everything)
-    #   in use  — someone is in it: a live claim, or a claude/shell process
-    #             cwd'd inside (overrides git state)
+    #   in use  — someone is in it (overlaid by the parent at render time,
+    #             where the process sweep has finished; overrides git state)
     #   parked  — human work blocks a clean pickup: off trunk and/or dirty
     #             tree (parked on trunk implies the latter)
     #   pull/push — on trunk, clean, but behind/ahead of upstream
@@ -54,12 +60,6 @@ status_for() {
         state="push"
     else
         state="open"
-    fi
-
-    # Someone is in it now, whatever the git state says. (When they leave,
-    # the clone reverts to the git-derived state above.)
-    if clone_occupied "$path"; then
-        state="in use"
     fi
 
     echo "${branch}|${state}"
@@ -99,23 +99,39 @@ emit_clone() {
         "${info%%|*}" "${info#*|}" "${session_info%%|*}" "${session_info#*|}"
 }
 
-# Warm the process-sweep cache once here in the parent: the per-clone workers
-# below are subshells forked after this line, so they inherit the result
-# instead of each paying their own ~1s lsof.
-spork_procs >/dev/null
-
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/spork-status.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
+
+# The process sweep (pgrep+lsof) runs as one more background job alongside
+# the per-clone workers — occupancy isn't needed until render time, so its
+# latency hides under theirs. spork_procs just prints the cached sweep when
+# a caller (or test) pre-loaded one.
+spork_procs >"$tmp/procs" &
+
 for i in "${!paths[@]}"; do
     emit_clone "${paths[$i]}" >"$tmp/$i" &
 done
 wait
+
+# Adopt the sweep for the occupancy checks below (read by the sourced
+# spork_procs; shellcheck can't see through the indirection).
+# shellcheck disable=SC2034
+SPORK_PROC_SWEEP=$(cat "$tmp/procs")
+# shellcheck disable=SC2034
+SPORK_PROC_SWEEP_LOADED=1
 
 declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=()
 for i in "${!paths[@]}"; do
     name=$(basename "${paths[$i]}")
     # Read back the four fields this clone's worker wrote, in order.
     { IFS= read -r branch; IFS= read -r state; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
+
+    # Someone is in it now, whatever the git state says — a live claim or a
+    # swept claude/shell process. Overlaid here (not in the worker) so the
+    # sweep and the git probes could run concurrently; broken still trumps.
+    if [[ "$state" != "broken" ]] && clone_occupied "${paths[$i]}"; then
+        state="in use"
+    fi
 
     # AGE = time since you last interacted with the clone's newest session
     # (its jsonl's last write). The active-row sort below uses the same

@@ -93,6 +93,9 @@ make_workspace 3
     sleep 300 >/dev/null 2>&1 & a=$!
     sleep 300 >/dev/null 2>&1 & b=$!
 
+    err=$(claim_owner p1 2>&1 >/dev/null)
+    check "unclaimed clone reads silently" "" "$err"
+
     try_claim p1 "$a"; check "first claim succeeds" 0 $?
     try_claim p1 "$b"; check "second claim by other live pid fails" 1 $?
     clone_occupied "$WS/p1"; check "p1 reads occupied" 0 $?
@@ -157,6 +160,27 @@ echo "unit: spork_proc_sweep joins pgrep names with lsof cwds"
     check "no processes -> empty sweep" "" "$out"
     check "no processes -> exit 0" 0 "$rc"
 ) || bad "sweep subshell errored"
+
+# ---------------------------------------------------------------------------
+echo "unit: clone_origin_url answers from .git/config, git only as fallback"
+make_workspace 1
+( cd "$WS" && . ./.spork/tools/_lib.sh
+
+    check "plain clone parses without git" "$ORIGIN_URL_FIXTURE" "$(clone_origin_url "$WS/p1")"
+
+    mkdir "$WS/plaindir"
+    check "non-repo dir -> empty" "" "$(clone_origin_url "$WS/plaindir")"
+
+    # pushurl shares the section and the 'url' substring; only `url` counts.
+    git -C "$WS/p1" config remote.origin.pushurl other:push.git
+    check "pushurl not mistaken for url" "$ORIGIN_URL_FIXTURE" "$(clone_origin_url "$WS/p1")"
+
+    # A gitfile layout (separate git dir) has no .git/config to parse — the
+    # fallback asks git itself.
+    git init -q --separate-git-dir "$WS/.gd" "$WS/gf"
+    git -C "$WS/gf" remote add origin "$ORIGIN_URL_FIXTURE"
+    check "gitfile repo falls back to git" "$ORIGIN_URL_FIXTURE" "$(clone_origin_url "$WS/gf")"
+) || bad "unit subshell errored"
 
 # ---------------------------------------------------------------------------
 echo "integration: claim.sh / pick-ready.sh skip clones someone is sitting in"

@@ -208,6 +208,38 @@ check "open clone still shows its branch"  "main" "$(field_of BRANCH p2)"
 
 # ---------------------------------------------------------------------------
 echo
+echo "status: pull/push when trunk diverges from a configured upstream"
+
+make_workspace 3
+
+# Wire an upstream for main by hand (ref + branch config), as a fetch would.
+track_origin() {
+    local p="$1" sha="$2"
+    git -C "$WS/$p" update-ref refs/remotes/origin/main "$sha"
+    git -C "$WS/$p" config branch.main.remote origin
+    git -C "$WS/$p" config branch.main.merge refs/heads/main
+}
+commit_on() { git -C "$WS/$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "$2"; }
+
+# p1 ahead: local main has a commit origin/main lacks -> push.
+a1=$(git -C "$WS/p1" rev-parse HEAD)
+commit_on p1 "local only"
+track_origin p1 "$a1"
+check "trunk ahead of upstream -> push" "push" "$(state_of p1)"
+
+# p2 behind: origin/main has a commit local main lacks -> pull.
+commit_on p2 "remote only"
+b2=$(git -C "$WS/p2" rev-parse HEAD)
+git -C "$WS/p2" reset -q --hard HEAD^
+track_origin p2 "$b2"
+check "trunk behind upstream -> pull" "pull" "$(state_of p2)"
+
+# In-sync tracking is still just open.
+track_origin p3 "$(git -C "$WS/p3" rev-parse HEAD)"
+check "in sync with upstream -> open" "open" "$(state_of p3)"
+
+# ---------------------------------------------------------------------------
+echo
 echo "status: rows are ordered naturally (p10 after p9, not after p1)"
 
 # A fresh workspace with >9 ready clones exposes lexicographic vs natural order:

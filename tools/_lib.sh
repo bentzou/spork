@@ -72,6 +72,43 @@ ensure_status_perf() {
     git -C "$path" config core.untrackedCache true 2>/dev/null || true
 }
 
+# remote.origin.url of a repo, forking git only when it must. Every picker
+# and the status table call this once per workspace directory, so the common
+# case — a real .git directory whose config carries the url in plain form —
+# is answered by a bash parse of .git/config (microseconds instead of a
+# ~10ms git fork). Anything the parse can't see (a gitfile/worktree layout,
+# an [include]d config) defers to `git config`, which stays the source of
+# truth for exotic setups. A directory with no .git at all answers empty
+# with no fork.
+clone_origin_url() {
+    local path="${1%/}" cfg line key in_origin=0 url=""
+    cfg="$path/.git/config"
+    if [[ ! -f "$cfg" ]]; then
+        [[ -e "$path/.git" ]] || return 0
+        git -C "$path" config --get remote.origin.url 2>/dev/null
+        return 0
+    fi
+    while IFS= read -r line; do
+        line="${line#"${line%%[![:space:]]*}"}"                # ltrim
+        case "$line" in
+            '[remote "origin"]'*) in_origin=1; continue ;;
+            '['*)                 in_origin=0; continue ;;
+        esac
+        (( in_origin )) || continue
+        key="${line%%=*}"
+        key="${key%"${key##*[![:space:]]}"}"                   # rtrim
+        if [[ "$key" == url ]]; then
+            url="${line#*=}"
+            url="${url#"${url%%[![:space:]]*}"}"               # last wins, like git
+        fi
+    done < "$cfg"
+    if [[ -n "$url" ]]; then
+        printf '%s\n' "$url"
+    else
+        git -C "$path" config --get remote.origin.url 2>/dev/null
+    fi
+}
+
 spork_clones() {
     local path url
     shopt -s nullglob
@@ -81,7 +118,7 @@ spork_clones() {
     # ordering source for the status table and for pick-ready/claim's
     # "first ready" choice, so fixing it here corrects both.
     for path in "$BASE_DIR"/*/; do
-        url=$(git -C "$path" config --get remote.origin.url 2>/dev/null || echo "")
+        url=$(clone_origin_url "$path")
         if [[ "$url" == "$ORIGIN_URL" ]]; then
             echo "$path"
         fi
@@ -190,9 +227,12 @@ proc_attached() {
 # should still release explicitly on normal exit to free the clone promptly.
 
 # Owner PID recorded for a claim, or empty if unclaimed/malformed.
+# (2>/dev/null must precede the input redirection: redirections apply left
+# to right, and it's the `<` on a missing pid file that would complain.)
 claim_owner() {
-    local name="$1"
-    cat "$CLAIMS_DIR/$name/pid" 2>/dev/null
+    local name="$1" owner=""
+    read -r owner 2>/dev/null < "$CLAIMS_DIR/$name/pid" || true
+    printf '%s' "$owner"
 }
 
 # True if <clone-name> has a live claim (owner process still running).
@@ -261,15 +301,36 @@ format_relative() {
 # session — the AGE and SESSION columns in `just status`, and the per-session
 # history behind `just log`.
 
-# Latest AI-generated title in a session jsonl, or empty. Titles are appended
-# over a session's life as `ai-title` records
-# ({"type":"ai-title","aiTitle":"…","sessionId":…}), so the last one wins.
-# Best-effort string parse — no jq dependency; anything it can't parse (unknown
-# key order, malformed line) degrades to empty rather than failing.
-claude_session_title() {
-    local file="$1" line title
+# Scan a session jsonl once for everything the readers below need: the last
+# ai-title record and the last record timestamp. Emits exactly two lines —
+# the raw ISO timestamp, then the raw ai-title record line (either may be
+# empty; records are single-line JSON, so line framing is safe). Session
+# logs run to megabytes, so reading the file once instead of once per
+# question is the whole point; parsing stays in the small helpers below.
+claude_session_scan() {
+    local file="$1"
     [[ -f "$file" ]] || return 0
-    line=$(grep -F '"type":"ai-title"' "$file" 2>/dev/null | tail -1)
+    LC_ALL=C awk '
+        /"type":"ai-title"/ { title = $0 }
+        {
+            # Last "timestamp":"…" occurrence wins, scanning matches within
+            # the line too. Copies embedded in string values (tool output
+            # quoting a record) arrive with escaped quotes and never match.
+            s = $0
+            while (match(s, /"timestamp":"[0-9][^"]*"/)) {
+                ts = substr(s, RSTART + 13, RLENGTH - 14)
+                s = substr(s, RSTART + RLENGTH)
+            }
+        }
+        END { print ts; print title }
+    ' "$file" 2>/dev/null
+}
+
+# Parse the aiTitle value out of one ai-title record line, or empty.
+# Best-effort string parse — no jq dependency; anything it can't parse
+# (unknown key order, malformed line) degrades to empty rather than failing.
+claude_title_parse() {
+    local line="$1" title
     [[ -n "$line" ]] || return 0
     # Value runs from `"aiTitle":"` to the record's `","sessionId":"…"` tail;
     # anchoring on that tail tolerates commas/escaped quotes inside the title.
@@ -280,6 +341,21 @@ claude_session_title() {
     title=${title//\\\"/\"}
     title=${title//\\\\/\\}
     printf '%s' "$title"
+}
+
+# ISO-8601 UTC timestamp -> epoch seconds (millis dropped); empty in, empty out.
+claude_iso_epoch() {
+    [[ -n "$1" ]] || return 0
+    TZ=UTC0 date -j -f '%Y-%m-%dT%H:%M:%S' "${1:0:19}" +%s 2>/dev/null
+}
+
+# Latest AI-generated title in a session jsonl, or empty. Titles are appended
+# over a session's life as `ai-title` records
+# ({"type":"ai-title","aiTitle":"…","sessionId":…}), so the last one wins.
+claude_session_title() {
+    local iso line
+    { IFS= read -r iso; IFS= read -r line; } < <(claude_session_scan "$1")
+    claude_title_parse "$line"
 }
 
 # Every session jsonl belonging to a clone, as "<mtime> <path>" lines, one per
@@ -318,26 +394,21 @@ claude_clone_session_files() {
 # record carries one. This — not mtime — is when you last interacted with the
 # session: idle claude processes rewrite their jsonl on every system wake
 # without appending records, so mtime clusters on the latest wake and lies
-# about interaction recency. Records carry ISO-8601 UTC timestamps
-# ("timestamp":"2026-07-17T07:44:49.123Z"); copies embedded in string values
-# (tool output quoting a record) arrive with escaped quotes, so a raw match
-# only hits real record fields.
+# about interaction recency.
 claude_session_last_ts() {
-    local file="$1" iso
-    [[ -f "$file" ]] || return 0
-    iso=$(grep -o '"timestamp":"[0-9][^"]*"' "$file" 2>/dev/null | tail -1)
-    iso="${iso#*:\"}"
-    [[ -n "$iso" ]] || return 0
-    TZ=UTC0 date -j -f '%Y-%m-%dT%H:%M:%S' "${iso:0:19}" +%s 2>/dev/null
+    local iso line
+    { IFS= read -r iso; IFS= read -r line; } < <(claude_session_scan "$1")
+    claude_iso_epoch "$iso"
 }
 
 # Newest session for any cwd inside a clone, as "<epoch>|<title>". The file
 # is picked by mtime (cheap, one stat sweep), but the epoch reported is the
 # last record timestamp inside it — the last real interaction — falling back
 # to mtime for logs that carry no timestamps. Both fields empty ("|") when
-# the clone has no sessions.
+# the clone has no sessions. One claude_session_scan pass supplies both the
+# epoch and the title.
 claude_newest_session() {
-    local best=0 best_file="" line mtime file ts
+    local best=0 best_file="" line mtime file iso tline ts
     while IFS= read -r line; do
         mtime="${line%% *}"
         file="${line#* }"
@@ -345,9 +416,10 @@ claude_newest_session() {
     done < <(claude_clone_session_files "$1")
 
     if (( best > 0 )); then
-        ts=$(claude_session_last_ts "$best_file")
+        { IFS= read -r iso; IFS= read -r tline; } < <(claude_session_scan "$best_file")
+        ts=$(claude_iso_epoch "$iso")
         [[ -n "$ts" ]] || ts=$best
-        printf '%s|%s' "$ts" "$(claude_session_title "$best_file")"
+        printf '%s|%s' "$ts" "$(claude_title_parse "$tline")"
     else
         printf '|'
     fi
