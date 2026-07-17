@@ -6,13 +6,13 @@ in-flight branch) without paying disk or network for redundant `.git` data.
 
 ```
 $ just status
-REPO  SESSION                        STATE   AGE   BRANCH
-p1    Build search index syncer      in use  2m    feat/search-index-sync
-p3    Fix image cache expiry bug     parked  5d    fix/image-cache-expiry
-p4    Spike: sqlite cache backend    parked  12d   main   ← stale: AGE turns red after 7d
-p5    Abstract the storage backend   in use  1d    feat/storage-interfaces
-p2                                   open          main
-p6                                   open          main
+REP  SESSION                        STATE   AGE  PR     BRANCH
+p1   Build search index syncer      in use  2m   #4269  feat/search-index-sync
+p3   Fix image cache expiry bug     parked  5d          fix/image-cache-expiry
+p4   Spike: sqlite cache backend    parked  12d         main   ← stale: AGE turns red after 7d
+p5   Abstract the storage backend   in use  1d   #4301  feat/storage-interfaces
+p2                                  open                main
+p6                                  open                main
 ```
 
 `STATE` answers "can I pick this clone up?" — `open` means yes; `in use`
@@ -148,6 +148,11 @@ The recipes in `spork.just` wrap the scripts in `tools/`:
 | `just resume <id\|name>` | Reopen a Claude session by `just log` ID — or a clone's latest by name. |
 | `just clean <name>` | Return a clone to `open`: latest trunk, clean tree, branches kept. |
 
+`just claude` and `just resume` stamp the terminal title with the clone
+name (OSC 0) as they open it, so the window is findable in your
+terminal's window list right away; Claude Code replaces the title with
+the session topic once one exists.
+
 ## "Ready" definition
 
 A clone is **ready** when:
@@ -202,8 +207,11 @@ is what keeps the table honest.
 ## Status table columns
 
 ```
-REPO  SESSION  STATE  AGE  PR  BRANCH
+REP  SESSION  STATE  AGE  PR  BRANCH
 ```
+
+On a tty the header row (and the sync footer under the table) renders dim,
+so the data rows carry the visual weight; piped output stays plain text.
 
 - **STATE** — one verdict per clone: can you pick it up, and if not, why?
   - `open` (green) — ready (see above) and nobody in it. What `jc` hands you.
@@ -237,15 +245,18 @@ REPO  SESSION  STATE  AGE  PR  BRANCH
   `CLAUDE_PROJECTS_DIR` to point the AGE/SESSION lookups at a non-default
   sessions root.
 - **PR** — the open PR whose head is the clone's current branch (`#4269`),
+  rendered in underlined blue — the classic "this is a link" — and
   clickable in terminals that support OSC 8 hyperlinks (iTerm2 does;
   others show the plain number). The mapping comes from a cache `just
   sync` refreshes via `gh pr list` — status itself never touches the
   network — plus the `pr-<n>` branch-name convention, which needs no
   cache. Blank when the branch has no open PR; the whole feature quietly
   disables itself without a GitHub origin or an authed `gh`.
-- **BRANCH** — the clone's current branch. It's the trailing column (a
-  branch name has no spaces, so it's safe to leave unpadded after the
-  free-text SESSION title).
+- **BRANCH** — the clone's current branch. Trunk renders dim (it's the
+  baseline, let it recede); any other branch renders in muted plum, so
+  "is work parked here?" is answered at a glance without reading names.
+  It's the trailing column (a branch name has no spaces, so it's safe to
+  leave unpadded after the free-text SESSION title).
 
 ## Session log
 
