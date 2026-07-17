@@ -224,8 +224,10 @@ if [[ -t 1 ]]; then
     c_cyan=$'\033[36m'
     c_red=$'\033[31m'
     c_link=$'\033[4;34m'     # underlined blue: the classic "this is a link"
-    c_branch=$'\033[2;35m'   # dim magenta: tinted but recessive — branch is
-                             # context, STATE/SESSION carry the row
+    c_branch=$'\033[38;5;139m'   # muted plum (256-color): a step brighter
+                                 # than dim magenta, still recessive next to
+                                 # STATE/SESSION. Fixed palette index, so
+                                 # themes can't remap it into default text.
     c_trunk=$'\033[2m'       # dim: trunk is the baseline, let it recede
     c_reset=$'\033[0m'
 fi
