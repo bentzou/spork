@@ -1,7 +1,7 @@
 #!/bin/bash
 # claim.sh — atomically claim the first ready, free clone and print its path.
 #
-# Usage: claim.sh [OWNER_PID]
+# Usage: claim.sh [OWNER_PID] [AGENT]
 #
 # Walks clones in workspace order and grabs the first that is ready (on trunk,
 # clean, in sync) and not already held by a live claim. The grab is atomic
@@ -20,6 +20,8 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
 owner="${1:-$PPID}"
+agent="${2:-claude}"
+agent_valid "$agent" || { echo "Unknown agent '$agent' (expected one of: $SPORK_AGENTS)." >&2; exit 2; }
 
 saw_ready=0
 while IFS= read -r path; do
@@ -30,7 +32,7 @@ while IFS= read -r path; do
     # too before racing for the claim (see "Live-process detection" in _lib).
     clone_occupied "$path" && continue
     name=$(basename "${path%/}")
-    if try_claim "$name" "$owner"; then
+    if try_claim "$name" "$owner" "$agent"; then
         printf '%s\n' "${path%/}"
         exit 0
     fi

@@ -21,20 +21,30 @@
 [group('use')]
 claude:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
-     path=$(./.spork/tools/claim.sh "$owner") || exit 1; \
+     path=$(./.spork/tools/claim.sh "$owner" claude) || exit 1; \
      trap 'bash "$rel" "$path" "$owner"' EXIT; \
      printf '\033]0;%s\007' "$(basename "$path")"; \
      cd "$path" && claude
+
+# Claim the first ready, unclaimed clone, open Codex in it, and release on exit.
+[group('use')]
+codex:
+    @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
+     path=$(./.spork/tools/claim.sh "$owner" codex) || exit 1; \
+     trap 'bash "$rel" "$path" "$owner"' EXIT; \
+     printf '\033]0;%s\007' "$(basename "$path")"; \
+     cd "$path" && codex
 
 # OWNER is a long-lived PID that keeps the claim held — pass your interactive
 # shell's $$ so a shell function can `cd` into the path and `release` it later,
 # with the claim owned by your terminal (it self-frees when the terminal closes)
 # rather than a transient just process. Bare `just claude` does this internally.
 # Claim the first ready, unclaimed clone for OWNER and print its path.
-# Private: a plumbing recipe for shell functions (the `jc` alias), not the menu.
+# Private: plumbing for shell functions (`jc`/`jx`), not the menu. AGENT
+# defaults to Claude for compatibility with existing `j claim $$` shortcuts.
 [private]
-claim owner:
-    @./.spork/tools/claim.sh "{{owner}}"
+claim owner agent='claude':
+    @./.spork/tools/claim.sh "{{owner}}" "{{agent}}"
 
 # CLONE is a clone path or bare name; OWNER is the PID that claimed it. A no-op
 # if the clone was already reclaimed by someone else.
@@ -52,16 +62,42 @@ go:
 # ID is a session id (or short id from `just log`), or a clone name like p3
 # to resume whatever session was last active there. Claims that session's
 # clone for this shell (self-frees on exit), then resumes it in its launch dir.
-# Resume a Claude session by `just log` ID — or by clone name (its latest).
+# Resume a session by `just log` ID — or by clone name (its latest).
 [group('use')]
 resume id:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
      found=$(./.spork/tools/find-session.sh "{{id}}") || exit 1; \
-     IFS=$'\t' read -r name cwd sid <<<"$found"; \
-     ./.spork/tools/claim-one.sh "$name" "$owner" >/dev/null || exit 1; \
+     IFS=$'\t' read -r agent name cwd sid <<<"$found"; \
+     ./.spork/tools/claim-one.sh "$name" "$owner" "$agent" >/dev/null || exit 1; \
+     trap 'bash "$rel" "$name" "$owner"' EXIT; \
+     printf '\033]0;%s\007' "$name"; \
+     case "$agent" in \
+       claude) cd "$cwd" && claude --resume "$sid" ;; \
+       codex)  cd "$cwd" && codex resume "$sid" ;; \
+       *) echo "Unknown agent '$agent'." >&2; exit 2 ;; \
+     esac
+
+# Resume a Claude session by `just log-claude` ID — or by clone name.
+[group('use')]
+resume-claude id:
+    @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
+     found=$(./.spork/tools/find-session.sh --agent claude "{{id}}") || exit 1; \
+     IFS=$'\t' read -r agent name cwd sid <<<"$found"; \
+     ./.spork/tools/claim-one.sh "$name" "$owner" "$agent" >/dev/null || exit 1; \
      trap 'bash "$rel" "$name" "$owner"' EXIT; \
      printf '\033]0;%s\007' "$name"; \
      cd "$cwd" && claude --resume "$sid"
+
+# Resume a Codex session by `just log-codex` ID — or by clone name.
+[group('use')]
+resume-codex id:
+    @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
+     found=$(./.spork/tools/find-session.sh --agent codex "{{id}}") || exit 1; \
+     IFS=$'\t' read -r agent name cwd sid <<<"$found"; \
+     ./.spork/tools/claim-one.sh "$name" "$owner" "$agent" >/dev/null || exit 1; \
+     trap 'bash "$rel" "$name" "$owner"' EXIT; \
+     printf '\033]0;%s\007' "$name"; \
+     cd "$cwd" && codex resume "$sid"
 
 # Create the next clone using the local mirror (no network).
 [group('manage')]
@@ -69,10 +105,20 @@ clone:
     @./.spork/tools/clone.sh
 
 # Optional N: a count or "all" (defaults to 20). Closed sessions are included.
-# Recent Claude sessions across the pool, newest first (no network).
+# Recent agent sessions across the pool, newest first (no network).
 [group('manage')]
 log *n:
     @./.spork/tools/log-all.sh "{{n}}"
+
+# Recent Claude sessions across the pool, newest first (no network).
+[group('manage')]
+log-claude *n:
+    @./.spork/tools/log-all.sh --agent claude "{{n}}"
+
+# Recent Codex sessions across the pool, newest first (no network).
+[group('manage')]
+log-codex *n:
+    @./.spork/tools/log-all.sh --agent codex "{{n}}"
 
 # Pull trunk in every clean clone. Skips non-trunk branches and dirty trees.
 [group('manage')]

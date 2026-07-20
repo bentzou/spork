@@ -52,7 +52,8 @@ make_workspace() {
     # Isolate the Claude session source so AGE/SESSION are hermetic (no real
     # ~/.claude state leaks in). Empty until a test writes a fixture log.
     export CLAUDE_PROJECTS_DIR="$WS/projects"
-    mkdir -p "$CLAUDE_PROJECTS_DIR"
+    export CODEX_SESSIONS_DIR="$WS/codex-sessions"
+    mkdir -p "$CLAUDE_PROJECTS_DIR" "$CODEX_SESSIONS_DIR"
     # Seed the process sweep as already-loaded-and-empty so occupancy is
     # hermetic too (no real terminal/claude cwds leak in). Tests inject
     # fake processes by overwriting SPORK_PROC_SWEEP.

@@ -8,35 +8,39 @@ background fetch updates them all.
 
 ```
 $ just status                                   # js
-REP  SESSION                        STATE   AGE  PR     BRANCH
-p1   Build search index syncer      in use  2m   #4269  feat/search-index-sync
-p3   Fix image cache expiry bug     parked  5d          fix/image-cache-expiry
-p4   Spike: sqlite cache backend    parked  12d         main
-p5   Abstract the storage backend   in use  1d   #4301  feat/storage-interfaces
-p2                                  open                main
-p6                                  open                main
+REP  SESSION                        STATE   AGENT   AGE  PR     BRANCH
+p1   Build search index syncer      in use  Claude  2m   #4269  feat/search-index-sync
+p3   Fix image cache expiry bug     parked  Claude  5d          fix/image-cache-expiry
+p4   Spike: sqlite cache backend    parked  Codex   12d         main
+p5   Abstract the storage backend   in use  Codex   1d   #4301  feat/storage-interfaces
+p2                                  open                       main
+p6                                  open                       main
 
 $ just claude                                   # jc
 # claims p2 — the first open clone — and opens Claude Code in it;
 # p2 shows as "in use" until you exit
 
+$ just codex
+# same picker/claim behavior, but opens Codex instead
+
 $ just log
-AGE  REP  ID        SESSION
-2m   p1   feb693a8  Build search index syncer            (in use)
-1d   p5   4082b292  Abstract the storage backend         (in use)
-5d   p3   686c1b22  Fix image cache expiry bug
-5d   p3   a6060d87  Debug websocket reconnect backoff
-12d  p4   9c1f22e0  Spike: sqlite cache backend
+AGE  AGENT   REP  ID        SESSION
+2m   Claude  p1   feb693a8  Build search index syncer            (in use)
+1d   Codex   p5   4082b292  Abstract the storage backend         (in use)
+5d   Claude  p3   686c1b22  Fix image cache expiry bug
+5d   Claude  p3   a6060d87  Debug websocket reconnect backoff
+12d  Codex   p4   9c1f22e0  Spike: sqlite cache backend
 
 $ just resume p3                                # or: just resume 686c1b22
-# reopens p3's most recent session where you left off
+# reopens p3's most recent Claude or Codex session where you left off
 ```
 
 `open` means free to grab; `in use` means someone is in it right now;
 `parked` means unfinished work is sitting there (a feature branch checked
 out, or a dirty tree). SESSION and AGE come from each clone's most recent
-[Claude Code](https://claude.ai/code) session; PR links the branch's open
-pull request. (`js`/`jc` are optional [shell shortcuts](#shell-shortcuts-optional).)
+Claude Code or Codex session; AGENT records which backend owns or last touched
+the session. PR links the branch's open pull request. (`js`/`jc` are optional
+[shell shortcuts](#shell-shortcuts-optional).)
 
 ## Setup
 
@@ -66,20 +70,27 @@ own recipes (or override shared ones) below the import.
 | `TRUNK_BRANCH` | The branch `just sync` keeps up to date. |
 | `CLONE_PREFIX` | Naming prefix for new clones. Default `p`. |
 | `POST_CLONE` | Optional command run inside each new clone, e.g. `bun install`. |
+| `SPORK_AGENTS` | Agent backends to scan. Default `claude codex`. |
+| `SPORK_LIVE_COMMANDS` | Process names whose cwd marks a clone occupied. Default `claude codex zsh bash fish`. |
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
 | `just status` | One-line status per clone (no network). |
-| `just log [N]` | Recent Claude sessions across the pool, newest first. |
+| `just log [N]` | Recent Claude and Codex sessions across the pool, newest first. |
+| `just log-claude [N]` | Recent Claude sessions only. |
+| `just log-codex [N]` | Recent Codex sessions only. |
 | `just sync` | Status table, then a background fetch/pull via the mirror. |
 | `just pull` | Foreground ff-merge of trunk in every clean clone. |
 | `just fetch` | Foreground fetch in every clone. |
 | `just clone` | Create the next clone, wired to the mirror. No network. |
 | `just go` | Print the path of the first open clone (for shell `cd`). |
 | `just claude` | Claim the first open clone and start Claude in it. |
-| `just resume <id\|name>` | Reopen a Claude session by `just log` ID — or a clone's latest by name. |
+| `just codex` | Claim the first open clone and start Codex in it. |
+| `just resume <id\|name>` | Reopen a Claude or Codex session by `just log` ID — or a clone's latest by name. |
+| `just resume-claude <id\|name>` | Reopen only a Claude session. |
+| `just resume-codex <id\|name>` | Reopen only a Codex session. |
 | `just clean <name>` | Return a clone to `open`: latest trunk, clean tree, branches kept. |
 | `just sync-setup` | One-time: create the mirror and link existing clones. |
 
@@ -90,8 +101,8 @@ Worth knowing:
   and sessions you open by hand inside a clone are detected too, so it
   won't hand out a clone someone is sitting in.
 - `just resume` takes a session ID from `just log` (a prefix is fine) or a
-  clone name — `just resume p3` reopens whatever session was last active
-  in p3. It refuses a clone that already has a Claude running.
+  clone name — `just resume p3` reopens whatever Claude or Codex session was
+  last active in p3. It refuses a clone that already has an agent running.
 - `just clean` never touches local branches, and refuses to discard work
   that exists nowhere else unless you pass `--force`. `--full` also wipes
   ignored files and reruns `POST_CLONE` — factory-new rather than merely
@@ -111,6 +122,14 @@ jc () {
    builtin cd "$p"
    printf '\033]0;%s\007' "${p##*/}"
    claude
+   ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
+}
+jx () {
+   local p
+   p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$" codex) || return
+   builtin cd "$p"
+   printf '\033]0;%s\007' "${p##*/}"
+   codex
    ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
 }
 ```

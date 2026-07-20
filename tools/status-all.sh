@@ -89,15 +89,17 @@ now=$(date +%s)
 # from the sum of per-clone probes to the slowest single clone. Presentation
 # (widths, color, ordering) stays serial below, off the collected records.
 emit_clone() {
-    # Four newline-delimited fields: branch, state, last_epoch, session_title.
-    # status_for yields "branch|state"; claude_newest_session yields
-    # "<epoch>|<title>". Titles are single-line, so newline framing needs no
-    # escaping and the reader can split fields by line.
-    local path="$1" info session_info
+    # Five newline-delimited fields: branch, state, agent, last_epoch,
+    # session_title. status_for yields "branch|state"; spork_newest_session
+    # yields "<agent>|<epoch>|<title>".
+    local path="$1" info session_info session_agent session_rest
     info=$(status_for "$path")
-    session_info=$(claude_newest_session "$path")
-    printf '%s\n%s\n%s\n%s\n' \
-        "${info%%|*}" "${info#*|}" "${session_info%%|*}" "${session_info#*|}"
+    session_info=$(spork_newest_session "$path")
+    session_agent="${session_info%%|*}"
+    session_rest="${session_info#*|}"
+    printf '%s\n%s\n%s\n%s\n%s\n' \
+        "${info%%|*}" "${info#*|}" \
+        "$session_agent" "${session_rest%%|*}" "${session_rest#*|}"
 }
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/spork-status.XXXXXX")
@@ -121,17 +123,26 @@ SPORK_PROC_SWEEP=$(cat "$tmp/procs")
 # shellcheck disable=SC2034
 SPORK_PROC_SWEEP_LOADED=1
 
-declare -a name_cells=() branch_cells=() state_cells=() age_cells=() last_epoch_cells=() session_cells=() pr_cells=()
+agent_width=5    # min for "AGENT" header
+declare -a name_cells=() branch_cells=() state_cells=() agent_cells=() age_cells=() last_epoch_cells=() session_cells=() pr_cells=()
 for i in "${!paths[@]}"; do
     name=$(basename "${paths[$i]}")
-    # Read back the four fields this clone's worker wrote, in order.
-    { IFS= read -r branch; IFS= read -r state; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
+    # Read back the five fields this clone's worker wrote, in order.
+    { IFS= read -r branch; IFS= read -r state; IFS= read -r agent; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
 
     # Someone is in it now, whatever the git state says — a live claim or a
     # swept claude/shell process. Overlaid here (not in the worker) so the
     # sweep and the git probes could run concurrently; broken still trumps.
     if [[ "$state" != "broken" ]] && clone_occupied "${paths[$i]}"; then
         state="in use"
+        claimed_agent=$(claim_agent "$name")
+        if [[ -n "$claimed_agent" ]]; then
+            agent="$claimed_agent"
+        else
+            for live_agent in $SPORK_AGENTS; do
+                proc_attached "${paths[$i]}" "$live_agent" && { agent="$live_agent"; break; }
+            done
+        fi
     fi
 
     # AGE = time since you last interacted with the clone's newest session
@@ -149,8 +160,10 @@ for i in "${!paths[@]}"; do
     # are capped at SESSION_MAX.
     if [[ "$state" == "open" ]]; then
         age=""
+        agent=""
         session=""
     else
+        [[ -n "$agent" ]] && agent=$(agent_label "$agent")
         [[ -z "$session" ]] && session="—"
         (( ${#session} > SESSION_MAX )) && session="${session:0:SESSION_MAX-1}…"
     fi
@@ -164,6 +177,7 @@ for i in "${!paths[@]}"; do
     name_cells+=("$name")
     branch_cells+=("$branch")
     state_cells+=("$state")
+    agent_cells+=("$agent")
     age_cells+=("$age")
     last_epoch_cells+=("$last_epoch")
     session_cells+=("$session")
@@ -172,6 +186,7 @@ for i in "${!paths[@]}"; do
     (( ${#name}    > repo_width ))    && repo_width=${#name}
     (( ${#session} > session_width )) && session_width=${#session}
     (( ${#state}   > state_width ))   && state_width=${#state}
+    (( ${#agent}   > agent_width ))   && agent_width=${#agent}
     (( ${#age}     > age_width ))      && age_width=${#age}
     (( ${#pr}      > pr_width ))       && pr_width=${#pr}
 done
@@ -184,11 +199,12 @@ if [[ -t 1 ]]; then
     c_head=$'\033[2m'
     c_head_reset=$'\033[0m'
 fi
-printf '%s%*s   %-*s   %-*s   %-*s   %-*s   %s%s\n' \
+printf '%s%*s   %-*s   %-*s   %-*s   %-*s   %-*s   %s%s\n' \
     "$c_head" \
     "$repo_width" "REP" \
     "$session_width" "SESSION" \
     "$state_width" "STATE" \
+    "$agent_width" "AGENT" \
     "$age_width" "AGE" \
     "$pr_width" "PR" "BRANCH" \
     "$c_head_reset"
@@ -217,11 +233,12 @@ if (( ${#active_idx[@]} > 1 )); then
     active_idx=("${sorted[@]}")
 fi
 
-c_green='' c_yellow='' c_cyan='' c_red='' c_link='' c_branch='' c_trunk='' c_reset=''
+c_green='' c_yellow='' c_cyan='' c_orange='' c_red='' c_link='' c_branch='' c_trunk='' c_reset=''
 if [[ -t 1 ]]; then
     c_green=$'\033[32m'
     c_yellow=$'\033[33m'
     c_cyan=$'\033[36m'
+    c_orange=$'\033[38;5;173m'  # muted terracotta
     c_red=$'\033[31m'
     c_link=$'\033[4;34m'     # underlined blue: the classic "this is a link"
     c_branch=$'\033[38;5;139m'   # muted plum (256-color): a step brighter
@@ -250,6 +267,16 @@ state_color() {
     esac
 }
 
+# Give each built-in agent a distinct visual identity. Unknown/custom agents
+# keep the previous cyan styling so extending SPORK_AGENTS remains graceful.
+agent_color() {
+    case "$1" in
+        Claude) printf '%s' "$c_orange" ;;
+        Codex)  printf '%s' "$c_cyan"   ;;
+        *)      printf '%s' "$c_cyan"   ;;
+    esac
+}
+
 # Color AGE red once a repo hasn't been touched by a Claude session in a while.
 STALE_THRESHOLD=$(( 7 * 86400 ))
 age_color() {
@@ -271,23 +298,27 @@ print_row() {
     local name="${name_cells[$i]}"
     local session="${session_cells[$i]}"
     local state="${state_cells[$i]}"
+    local agent="${agent_cells[$i]}"
     local age="${age_cells[$i]}"
     local pr="${pr_cells[$i]}"
 
     local sc; sc=$(state_color "$state")
+    local agent_c; agent_c=$(agent_color "$agent")
     local ac=""; [[ -n "$age" ]] && ac=$(age_color "${last_epoch_cells[$i]}")
     # Trunk recedes (dim), anything else pops (bold magenta) — the branch
     # column's question is "is work parked here?", answered at a glance.
     local bc="$c_branch"
     [[ "${branch_cells[$i]}" == "$TRUNK_BRANCH" ]] && bc="$c_trunk"
 
-    local name_pad state_pad age_pad pr_pad
+    local name_pad state_pad agent_pad age_pad pr_pad
     printf -v name_pad  '%-*s' "$repo_width"  "$name"
     printf -v state_pad '%-*s' "$state_width" "$state"
+    printf -v agent_pad '%-*s' "$agent_width" "$agent"
     printf -v age_pad   '%-*s' "$age_width"   "$age"
     printf -v pr_pad    '%-*s' "$pr_width"    "$pr"
     local name_tail="${name_pad:${#name}}"
     local state_tail="${state_pad:${#state}}"
+    local agent_tail="${agent_pad:${#agent}}"
     local age_tail="${age_pad:${#age}}"
     local pr_tail="${pr_pad:${#pr}}"
 
@@ -303,10 +334,11 @@ print_row() {
     local sess_pad=$(( session_width - ${#session} ))
     (( sess_pad < 0 )) && sess_pad=0
 
-    printf '%s%s%s%s   %s%*s   %s%s%s%s   %s%s%s%s   %s%s   %s\n' \
+    printf '%s%s%s%s   %s%*s   %s%s%s%s   %s%s%s%s   %s%s%s%s   %s%s   %s\n' \
         "$name_tail" "$sc" "$name" "$c_reset" \
         "$session" "$sess_pad" "" \
         "$sc" "$state" "$c_reset" "$state_tail" \
+        "$agent_c" "$agent" "$c_reset" "$agent_tail" \
         "$ac" "$age" "$c_reset" "$age_tail" \
         "$pr_out" "$pr_tail" \
         "${bc}${branch_cells[$i]}${c_reset}"

@@ -47,7 +47,8 @@ make_workspace() {
     local n="$1" i
     WS=$(mktemp -d)
     export CLAUDE_PROJECTS_DIR="$WS/projects"
-    mkdir -p "$CLAUDE_PROJECTS_DIR"
+    export CODEX_SESSIONS_DIR="$WS/codex-sessions"
+    mkdir -p "$CLAUDE_PROJECTS_DIR" "$CODEX_SESSIONS_DIR"
     ln -s "$SPORK_REPO" "$WS/.spork"
     mkdir -p "$WS/.spork.local"
     cat > "$WS/.spork.local/config" <<EOF
@@ -77,27 +78,27 @@ session_for() {
     touch -t "$ts" "$dir/$id.jsonl"
 }
 
-# "REP|SESSION" for body row N (1-based, header skipped), or empty. AGE, REP and
-# ID are single tokens; SESSION is the free-text remainder. Non-tty capture
-# carries no color escapes, so plain field splitting is safe.
+# "REP|SESSION" for body row N (1-based, header skipped), or empty. AGE, AGENT,
+# REP and ID are single tokens; SESSION is the free-text remainder. Non-tty
+# capture carries no color escapes, so plain field splitting is safe.
 row() {
     local n="$1"
     log all | awk -v n="$n" '
         function trim(s){ gsub(/^ +| +$/, "", s); return s }
         NR==1 { next }
-        (NR-1)==n { rep=$2; $1=""; $2=""; $3=""; print rep "|" trim($0); exit }'
+        (NR-1)==n { rep=$3; $1=""; $2=""; $3=""; $4=""; print rep "|" trim($0); exit }'
 }
-# ID cell (3rd column) of body row N, or empty.
+# ID cell (4th column) of body row N, or empty.
 id_of() {
     local n="$1"
-    log all | awk -v n="$n" 'NR==1{next} (NR-1)==n{print $3; exit}'
+    log all | awk -v n="$n" 'NR==1{next} (NR-1)==n{print $4; exit}'
 }
 # Count of body rows (header excluded).
 row_count() { local c; c=$(log all | wc -l); echo $(( c - 1 )); }
 # Claim clone <name> for owner <pid> via the sourced helper (occupies it).
 claim_clone() { ( cd "$WS" && . ./.spork/tools/_lib.sh && try_claim "$1" "$2" ); }
 # Body rows for clone <name> carrying the "(in use)" marker.
-inuse_rows() { log all | awk -v r="$1" 'NR>1 && $2==r' | grep -c '(in use)'; }
+inuse_rows() { log all | awk -v r="$1" 'NR>1 && $3==r' | grep -c '(in use)'; }
 
 # ---------------------------------------------------------------------------
 echo "log: sessions across clones, newest first, incl. closed + subdir sessions"
@@ -129,7 +130,7 @@ echo
 echo "log: N limits to the most recent, 'all' shows everything, default is 20"
 
 check "N=2 keeps the two newest"    "2"            "$(log 2 | awk 'NR>1' | wc -l | tr -d ' ')"
-check "N=2 top row is the newest"   "p2|p2 only"   "$(log 2 | awk 'NR==2{rep=$2;$1="";$2="";$3="";gsub(/^ +/,"",$0);print rep "|" $0}')"
+check "N=2 top row is the newest"   "p2|p2 only"   "$(log 2 | awk 'NR==2{rep=$3;$1="";$2="";$3="";$4="";gsub(/^ +/,"",$0);print rep "|" $0}')"
 check "'all' shows every session"   "5"            "$(row_count)"
 check "bad N -> usage error (exit 2)" "2"          "$(log nope >/dev/null 2>&1; echo $?)"
 
@@ -147,7 +148,7 @@ check "full long title not shown"      "0"         "$(log all | grep -Fc -- "$lo
 make_workspace 2
 check "no sessions -> exit 0"          "0"  "$(log >/dev/null 2>&1; echo $?)"
 check "no sessions -> no stdout rows"  "0"  "$(log 2>/dev/null | wc -l | tr -d ' ')"
-check "no sessions -> stderr notice"   "1"  "$(log 2>&1 >/dev/null | grep -c 'No Claude sessions')"
+check "no sessions -> stderr notice"   "1"  "$(log 2>&1 >/dev/null | grep -c 'No agent sessions')"
 
 # ---------------------------------------------------------------------------
 echo

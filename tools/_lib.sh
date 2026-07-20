@@ -36,10 +36,12 @@ LOG_FILE="$RUNTIME_DIR/sync.log"
 # shellcheck disable=SC2034
 LOCK_DIR="$RUNTIME_DIR/sync.lock"
 CLAIMS_DIR="$RUNTIME_DIR/claims"
-# Where Claude Code stores per-cwd session logs. Overridable so the session
-# readers below can be tested against a fixture root.
+# Where agent CLIs store session logs. Overridable so the session readers below
+# can be tested against fixture roots.
 # shellcheck disable=SC2034
 CLAUDE_PROJECTS_DIR="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
+# shellcheck disable=SC2034
+CODEX_SESSIONS_DIR="${CODEX_SESSIONS_DIR:-${CODEX_HOME:-$HOME/.codex}/sessions}"
 
 if [[ ! -f "$LOCAL_DIR/config" ]]; then
     echo "Missing $LOCAL_DIR/config — run \`.spork/init\` to create one." >&2
@@ -200,7 +202,24 @@ pr_for_branch() {
 # if pgrep or lsof fail or are missing, the sweep is empty and occupancy
 # degrades to claims-only (the pre-detection behavior).
 
-: "${SPORK_LIVE_COMMANDS:=claude zsh bash fish}"
+: "${SPORK_AGENTS:=claude codex}"
+: "${SPORK_LIVE_COMMANDS:=claude codex zsh bash fish}"
+
+agent_valid() {
+    local want="$1" a
+    for a in $SPORK_AGENTS; do
+        [[ "$a" == "$want" ]] && return 0
+    done
+    return 1
+}
+
+agent_label() {
+    case "$1" in
+        claude) printf 'Claude' ;;
+        codex)  printf 'Codex' ;;
+        *)      printf '%s' "$1" ;;
+    esac
+}
 
 # One "command<TAB>cwd" line per live watched process owned by this user.
 # Costs ~1s of lsof — callers go through spork_procs, which caches.
@@ -272,6 +291,13 @@ claim_owner() {
     printf '%s' "$owner"
 }
 
+# Agent recorded for a claim, or empty for old/manual claims.
+claim_agent() {
+    local name="$1" agent=""
+    read -r agent 2>/dev/null < "$CLAIMS_DIR/$name/agent" || true
+    printf '%s' "$agent"
+}
+
 # True if <clone-name> has a live claim (owner process still running).
 claim_live() {
     local name="$1" owner
@@ -290,16 +316,18 @@ clone_occupied() {
 # Atomically claim <clone-name> for <pid>. Succeeds (0) if the clone was free
 # or held only a stale claim; fails (1) if a live owner already holds it.
 try_claim() {
-    local name="$1" pid="$2" d
+    local name="$1" pid="$2" agent="${3:-claude}" d
     d="$CLAIMS_DIR/$name"
     mkdir -p "$CLAIMS_DIR"
     if mkdir "$d" 2>/dev/null; then
         printf '%s\n' "$pid" > "$d/pid"
+        printf '%s\n' "$agent" > "$d/agent"
         return 0
     fi
     # Directory exists: live owner blocks us; a dead owner is reclaimable.
     claim_live "$name" && return 1
     printf '%s\n' "$pid" > "$d/pid"
+    printf '%s\n' "$agent" > "$d/agent"
     return 0
 }
 
@@ -467,5 +495,197 @@ claude_newest_session() {
         printf '%s|%s' "$ts" "$(claude_title_parse "$tline")"
     else
         printf '|'
+    fi
+}
+
+# The cwd a Claude session was launched from: the first record carrying a "cwd"
+# field. Best-effort string parse, matching the no-jq style of the other
+# readers; an unparseable log degrades to empty rather than failing.
+claude_session_cwd() {
+    local file="$1" line cwd
+    line=$(grep -m1 -F '"cwd":"' "$file" 2>/dev/null)
+    [[ -n "$line" ]] || return 0
+    cwd=$(sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p' <<<"$line")
+    cwd=${cwd//\\\//\/}
+    cwd=${cwd//\\\\/\\}
+    printf '%s' "$cwd"
+}
+
+# Codex sessions
+# --------------
+# Codex stores interactive transcripts under CODEX_SESSIONS_DIR as jsonl files
+# grouped by date. Unlike Claude, the directory does not encode cwd, so the
+# clone filter reads each transcript's session_meta cwd. This mirrors the
+# Claude helpers above and stays file-backed for simple fixtures.
+
+json_string_field() {
+    local line="$1" field="$2" value
+    value=$(sed -n 's/.*"'"$field"'":"\([^"]*\)".*/\1/p' <<<"$line")
+    value=${value//\\\"/\"}
+    value=${value//\\\//\/}
+    value=${value//\\\\/\\}
+    printf '%s' "$value"
+}
+
+codex_session_meta_line() {
+    local file="$1"
+    grep -m1 -F '"type":"session_meta"' "$file" 2>/dev/null
+}
+
+codex_session_cwd() {
+    local file="$1" line
+    line=$(codex_session_meta_line "$file")
+    json_string_field "$line" cwd
+}
+
+codex_session_id() {
+    local file="$1" line id
+    line=$(codex_session_meta_line "$file")
+    id=$(json_string_field "$line" session_id)
+    [[ -z "$id" ]] && id=$(json_string_field "$line" id)
+    if [[ -z "$id" ]]; then
+        id="${file##*/}"
+        id="${id%.jsonl}"
+        id="${id#rollout-????-??-??T??-??-??-}"
+    fi
+    printf '%s' "$id"
+}
+
+codex_session_title() {
+    local file="$1" line title
+    # Prefer the first real user message, which matches Codex's own thread
+    # preview closely enough for spork's status/log display.
+    line=$(awk '/"type":"event_msg"/ && /"type":"user_message"/ { print; exit }' "$file" 2>/dev/null)
+    title=$(json_string_field "$line" message)
+    [[ -z "$title" ]] && title=$(json_string_field "$line" text)
+    [[ -z "$title" ]] && title=$(json_string_field "$(codex_session_meta_line "$file")" title)
+    printf '%s' "$title"
+}
+
+codex_session_scan() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+    LC_ALL=C awk '
+        {
+            s = $0
+            while (match(s, /"timestamp":"[0-9][^"]*"/)) {
+                ts = substr(s, RSTART + 13, RLENGTH - 14)
+                s = substr(s, RSTART + RLENGTH)
+            }
+        }
+        END { print ts }
+    ' "$file" 2>/dev/null
+}
+
+codex_iso_epoch() {
+    claude_iso_epoch "$1"
+}
+
+codex_clone_session_files() {
+    local repo_path="${1%/}" root="$CODEX_SESSIONS_DIR"
+    [[ -d "$root" ]] || return 0
+
+    local file cwd files=()
+    while IFS= read -r file; do
+        [[ -f "$file" ]] || continue
+        cwd=$(codex_session_cwd "$file")
+        [[ "$cwd" == "$repo_path" || "$cwd" == "$repo_path"/* ]] || continue
+        files+=("$file")
+    done < <(find "$root" -type f -name '*.jsonl' 2>/dev/null)
+
+    (( ${#files[@]} == 0 )) && return 0
+    stat -f '%m %N' "${files[@]}" 2>/dev/null
+}
+
+codex_newest_session_file() {
+    local best=0 best_file="" line mtime file
+    while IFS= read -r line; do
+        mtime="${line%% *}"
+        file="${line#* }"
+        (( mtime > best )) && { best=$mtime; best_file=$file; }
+    done < <(codex_clone_session_files "$1")
+    printf '%s' "$best_file"
+}
+
+codex_newest_session() {
+    local file iso ts
+    file=$(codex_newest_session_file "$1")
+    if [[ -n "$file" ]]; then
+        iso=$(codex_session_scan "$file")
+        ts=$(codex_iso_epoch "$iso")
+        [[ -n "$ts" ]] || ts=$(stat -f %m "$file" 2>/dev/null)
+        printf '%s|%s' "$ts" "$(codex_session_title "$file")"
+    else
+        printf '|'
+    fi
+}
+
+agent_clone_session_files() {
+    local agent="$1" path="$2"
+    case "$agent" in
+        claude) claude_clone_session_files "$path" ;;
+        codex)  codex_clone_session_files "$path" ;;
+    esac
+}
+
+agent_session_title() {
+    local agent="$1" file="$2"
+    case "$agent" in
+        claude) claude_session_title "$file" ;;
+        codex)  codex_session_title "$file" ;;
+    esac
+}
+
+agent_session_id() {
+    local agent="$1" file="$2" id
+    case "$agent" in
+        claude) id="${file##*/}"; printf '%s' "${id%.jsonl}" ;;
+        codex)  codex_session_id "$file" ;;
+    esac
+}
+
+agent_newest_session_file() {
+    local agent="$1" path="$2"
+    case "$agent" in
+        claude) claude_newest_session_file "$path" ;;
+        codex)  codex_newest_session_file "$path" ;;
+    esac
+}
+
+agent_session_cwd() {
+    local agent="$1" file="$2"
+    case "$agent" in
+        claude) claude_session_cwd "$file" ;;
+        codex)  codex_session_cwd "$file" ;;
+    esac
+}
+
+agent_newest_session() {
+    local agent="$1" path="$2"
+    case "$agent" in
+        claude) claude_newest_session "$path" ;;
+        codex)  codex_newest_session "$path" ;;
+    esac
+}
+
+# Newest session for any configured agent in a clone, as
+# "<agent>|<epoch>|<title>". Empty agent/epoch/title ("||") when none exist.
+spork_newest_session() {
+    local path="$1" agent info epoch title best_agent="" best_epoch=0 best_title=""
+    for agent in $SPORK_AGENTS; do
+        info=$(agent_newest_session "$agent" "$path")
+        epoch="${info%%|*}"
+        title="${info#*|}"
+        [[ -n "$epoch" ]] || continue
+        if (( epoch > best_epoch )); then
+            best_epoch="$epoch"
+            best_agent="$agent"
+            best_title="$title"
+        fi
+    done
+    if [[ -n "$best_agent" ]]; then
+        printf '%s|%s|%s' "$best_agent" "$best_epoch" "$best_title"
+    else
+        printf '||'
     fi
 }

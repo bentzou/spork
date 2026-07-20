@@ -12,10 +12,12 @@
 #                 POST_CLONE='bun install'
 #                 POST_CLONE='pnpm install && pnpm run prepare'
 #                 POST_CLONE=./scripts/setup-new-clone.sh
+# SPORK_AGENTS: optional, space-separated agent backends whose sessions spork
+#               scans and can resume. Default: "claude codex".
 # SPORK_LIVE_COMMANDS: optional, space-separated process names whose cwd
 #               marks a clone as occupied ("in use"). Default:
-#               "claude zsh bash fish" — add your shell if it's not listed
-#               (e.g. SPORK_LIVE_COMMANDS='claude zsh bash fish nu').
+#               "claude codex zsh bash fish" — add your shell if it's not
+#               listed (e.g. SPORK_LIVE_COMMANDS='claude codex zsh bash fish nu').
 
 ORIGIN_URL=git@github.com:YOUR-ORG/YOUR-REPO.git
 TRUNK_BRANCH=main

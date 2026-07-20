@@ -17,15 +17,22 @@ default:
 
 # --- Workspace-specific recipes / overrides go below ---
 #
-# Example: if your app lives in a monorepo subdir, override `claude`/`go` to
-# target it (everything else is inherited from .spork/spork.just):
+# Example: if your app lives in a monorepo subdir, override agent launchers/go
+# to target it (everything else is inherited from .spork/spork.just):
 #
 # [group('use')]
 # claude:
 #     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
-#      path=$(./.spork/tools/claim.sh "$owner") || exit 1; \
+#      path=$(./.spork/tools/claim.sh "$owner" claude) || exit 1; \
 #      trap 'bash "$rel" "$path" "$owner"' EXIT; \
 #      cd "$path/SUBDIR" && claude
+#
+# [group('use')]
+# codex:
+#     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
+#      path=$(./.spork/tools/claim.sh "$owner" codex) || exit 1; \
+#      trap 'bash "$rel" "$path" "$owner"' EXIT; \
+#      cd "$path/SUBDIR" && codex
 #
 # [group('use')]
 # go:

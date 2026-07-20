@@ -1,70 +1,75 @@
 #!/bin/bash
-# find-session.sh — resolve a session id (or the short id shown by `just
-# log`), or a clone name (its newest session), to everything `just resume`
-# needs to reopen it.
+# find-session.sh — resolve a session id (or the short id shown by `just log`),
+# or a clone name (its newest session), to everything `just resume` needs.
 #
-# Usage: find-session.sh <id-or-prefix-or-clone-name>
-# Output: one TAB-separated line on stdout: <clone-name>\t<cwd>\t<full-session-id>
-#   clone-name — the pool clone the session lives in (what resume claims).
-#   cwd        — the directory the session was launched from, read from the
-#                session log itself (so a monorepo subdir cwd is preserved
-#                exactly, with no lossy dir-name decoding). Falls back to the
-#                clone root if the log records no cwd or it no longer exists.
-#   full-id    — the complete session id to hand to `claude --resume`.
-#
-# Read-only — never claims or mutates. This is the single source of truth for
-# "given an id from the log, where do I resume it and as what?", so resume and
-# its tests share one resolver. Exits 2 on usage error, 1 when zero or several
-# sessions match (candidates listed on stderr so you can disambiguate).
+# Usage: find-session.sh [--agent AGENT] <id-or-prefix-or-clone-name>
+# Output: one TAB-separated line:
+#   <agent>\t<clone-name>\t<cwd>\t<full-session-id>
 
 set -uo pipefail
 # shellcheck source=_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
-[[ $# -ge 1 && -n "${1:-}" ]] || { echo "usage: find-session.sh <id-or-prefix>" >&2; exit 2; }
+agent_filter=""
+if [[ "${1:-}" == "--agent" ]]; then
+    agent_filter="${2:-}"
+    agent_valid "$agent_filter" || { echo "Unknown agent '$agent_filter' (expected one of: $SPORK_AGENTS)." >&2; exit 2; }
+    shift 2
+fi
+
+[[ $# -ge 1 && -n "${1:-}" ]] || { echo "usage: find-session.sh [--agent AGENT] <id-or-prefix>" >&2; exit 2; }
 query="$1"
 
-# The cwd a session was launched from: the first record carrying a "cwd" field.
-# Best-effort string parse, matching the no-jq style of the other readers; an
-# unparseable log degrades to empty rather than failing.
-session_cwd() {
-    local file="$1" line cwd
-    line=$(grep -m1 -F '"cwd":"' "$file" 2>/dev/null)
-    [[ -n "$line" ]] || return 0
-    cwd=$(sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p' <<<"$line")
-    # Unescape the JSON escapes a filesystem path can realistically carry.
-    cwd=${cwd//\\\//\/}
-    cwd=${cwd//\\\\/\\}
-    printf '%s' "$cwd"
+match_agents() {
+    local agent
+    if [[ -n "$agent_filter" ]]; then
+        printf '%s\n' "$agent_filter"
+    else
+        for agent in $SPORK_AGENTS; do printf '%s\n' "$agent"; done
+    fi
 }
 
 matches=()
 if [[ -d "$BASE_DIR/$query" && "$(clone_origin_url "$BASE_DIR/$query")" == "$ORIGIN_URL" ]]; then
-    # The query names a pool clone: resume its newest session (by last
-    # write, the same recency the status table shows). Clone names and id
-    # prefixes can't collide — session ids are hex UUIDs.
-    newest=$(claude_newest_session_file "$BASE_DIR/$query")
-    if [[ -z "$newest" ]]; then
-        echo "No sessions recorded for clone '$query' — nothing to resume." >&2
-        echo "Run \`just log\` for sessions, or \`just claude\` to start fresh." >&2
+    # The query names a pool clone: resume its newest session across the
+    # selected agent set.
+    best_agent="" best_file="" best_mtime=0
+    while IFS= read -r agent; do
+        file=$(agent_newest_session_file "$agent" "$BASE_DIR/$query")
+        [[ -n "$file" ]] || continue
+        mtime=$(stat -f %m "$file" 2>/dev/null || echo 0)
+        if (( mtime > best_mtime )); then
+            best_mtime="$mtime"
+            best_agent="$agent"
+            best_file="$file"
+        fi
+    done < <(match_agents)
+
+    if [[ -z "$best_file" ]]; then
+        if [[ -n "$agent_filter" ]]; then
+            echo "No $(agent_label "$agent_filter") sessions recorded for clone '$query' — nothing to resume." >&2
+        else
+            echo "No sessions recorded for clone '$query' — nothing to resume." >&2
+        fi
+        echo "Run \`just log\` for sessions, or \`just claude\` / \`just codex\` to start fresh." >&2
         exit 1
     fi
-    id="${newest##*/}"; id="${id%.jsonl}"
-    matches+=("$id"$'\t'"$query")
+    matches+=("$best_agent"$'\t'"$(agent_session_id "$best_agent" "$best_file")"$'\t'"$query"$'\t'"$best_file")
 else
-    # Collect every session whose id starts with the query, as "id\tclone"
-    # lines. UUID/short ids contain no glob metacharacters, so the prefix
-    # case is literal.
+    # Collect every session whose id starts with the query, as
+    # "agent\tid\tclone\tfile" lines. Exact full-id matches win below.
     while IFS= read -r path; do
         name=$(basename "${path%/}")
-        while IFS= read -r line; do
-            [[ -n "$line" ]] || continue
-            file="${line#* }"
-            id="${file##*/}"; id="${id%.jsonl}"
-            case "$id" in
-                "$query"*) matches+=("$id"$'\t'"$name") ;;
-            esac
-        done < <(claude_clone_session_files "$path")
+        while IFS= read -r agent; do
+            while IFS= read -r line; do
+                [[ -n "$line" ]] || continue
+                file="${line#* }"
+                id=$(agent_session_id "$agent" "$file")
+                case "$id" in
+                    "$query"*) matches+=("$agent"$'\t'"$id"$'\t'"$name"$'\t'"$file") ;;
+                esac
+            done < <(agent_clone_session_files "$agent" "$path")
+        done < <(match_agents)
     done < <(spork_clones)
 fi
 
@@ -74,43 +79,39 @@ if (( ${#matches[@]} == 0 )); then
     exit 1
 fi
 
-# Resolve to one. An exact full-id match wins even if it's also a prefix of
-# other ids, so a complete id is never ambiguous; otherwise a unique prefix
-# resolves, and a non-unique one lists its candidates.
 chosen=""
 if (( ${#matches[@]} == 1 )); then
     chosen="${matches[0]}"
 else
     for m in "${matches[@]}"; do
-        if [[ "${m%%$'\t'*}" == "$query" ]]; then chosen="$m"; break; fi
+        rest="${m#*$'\t'}"
+        id="${rest%%$'\t'*}"
+        if [[ "$id" == "$query" ]]; then chosen="$m"; break; fi
     done
     if [[ -z "$chosen" ]]; then
         echo "'$query' matches ${#matches[@]} sessions — use more characters:" >&2
         for m in "${matches[@]}"; do
-            printf '  %s  (%s)\n' "${m%%$'\t'*}" "${m#*$'\t'}" >&2
+            agent="${m%%$'\t'*}"
+            rest="${m#*$'\t'}"
+            id="${rest%%$'\t'*}"
+            clone_and_file="${rest#*$'\t'}"
+            clone="${clone_and_file%%$'\t'*}"
+            printf '  %s  (%s, %s)\n' "$id" "$clone" "$(agent_label "$agent")" >&2
         done
         exit 1
     fi
 fi
 
-id="${chosen%%$'\t'*}"
-name="${chosen#*$'\t'}"
+agent="${chosen%%$'\t'*}"
+rest="${chosen#*$'\t'}"
+id="${rest%%$'\t'*}"
+rest="${rest#*$'\t'}"
+name="${rest%%$'\t'*}"
+file="${rest#*$'\t'}"
 clone_path="$BASE_DIR/$name"
 
-# Re-find the matched file's full path to read its cwd (cheaper than threading
-# it through the match list, and there's only one survivor now).
-file=""
-shopt -s nullglob
-for dir in "$CLAUDE_PROJECTS_DIR/${clone_path//\//-}" "$CLAUDE_PROJECTS_DIR/${clone_path//\//-}"-*; do
-    [[ -f "$dir/$id.jsonl" ]] && { file="$dir/$id.jsonl"; break; }
-done
-shopt -u nullglob
-
-cwd=""
-[[ -n "$file" ]] && cwd=$(session_cwd "$file")
-# Fall back to the clone root when the log records no cwd or it's since gone
-# (resume-by-id still locates the session; cwd only sets the working tree).
+cwd=$(agent_session_cwd "$agent" "$file")
 [[ -n "$cwd" && -d "$cwd" ]] || cwd="$clone_path"
 [[ -d "$cwd" ]] || { echo "Clone dir for session $id no longer exists: $cwd" >&2; exit 1; }
 
-printf '%s\t%s\t%s\n' "$name" "$cwd" "$id"
+printf '%s\t%s\t%s\t%s\n' "$agent" "$name" "$cwd" "$id"

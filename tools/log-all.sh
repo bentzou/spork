@@ -1,5 +1,5 @@
 #!/bin/bash
-# log-all.sh — recent Claude sessions across the clone pool, newest first.
+# log-all.sh — recent agent sessions across the clone pool, newest first.
 #
 # A "session" is one Claude Code jsonl log. This lists them across every clone
 # ordered by last activity, so you can see what you worked on and where —
@@ -9,11 +9,19 @@
 # Read-only: reads session mtimes and titles, never the repos. Same session
 # source and dir-encoding rules as the AGE/SESSION columns in `just status`.
 #
-# Usage: log-all.sh [N]   N most recent sessions (default 20; "all" = no limit).
+# Usage: log-all.sh [--agent AGENT] [N]
+#   N most recent sessions (default 20; "all" = no limit).
 
 set -uo pipefail
 # shellcheck source=_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+agent_filter=""
+if [[ "${1:-}" == "--agent" ]]; then
+    agent_filter="${2:-}"
+    agent_valid "$agent_filter" || { echo "Unknown agent '$agent_filter' (expected one of: $SPORK_AGENTS)." >&2; exit 2; }
+    shift 2
+fi
 
 limit="${1:-20}"
 if [[ "$limit" != "all" && ! "$limit" =~ ^[0-9]+$ ]]; then
@@ -28,21 +36,24 @@ now=$(date +%s)
 # carry fewer columns, so there's room for a fuller title.
 SESSION_MAX=72
 
-# Gather "<mtime>\t<clone>\t<file>" for every session in every clone. Title
+# Gather "<mtime>\t<agent>\t<clone>\t<file>" for every session in every clone. Title
 # parsing is deferred until after the global sort+truncate below, so we only
 # grep the handful of logs we actually print — not every historical session.
 # The tab framing lets `sort` key on the numeric mtime and the reader split
 # cleanly even though a session title (added later) may contain spaces.
 gather() {
-    local path name line mtime file
+    local path name agent line mtime file
     while IFS= read -r path; do
         name=$(basename "${path%/}")
-        while IFS= read -r line; do
-            [[ -n "$line" ]] || continue
-            mtime="${line%% *}"
-            file="${line#* }"
-            printf '%s\t%s\t%s\n' "$mtime" "$name" "$file"
-        done < <(claude_clone_session_files "$path")
+        for agent in $SPORK_AGENTS; do
+            [[ -n "$agent_filter" && "$agent" != "$agent_filter" ]] && continue
+            while IFS= read -r line; do
+                [[ -n "$line" ]] || continue
+                mtime="${line%% *}"
+                file="${line#* }"
+                printf '%s\t%s\t%s\t%s\n' "$mtime" "$agent" "$name" "$file"
+            done < <(agent_clone_session_files "$agent" "$path")
+        done
     done < <(spork_clones)
 }
 
@@ -52,7 +63,11 @@ if [[ "$limit" != "all" && -n "$rows" ]]; then
 fi
 
 if [[ -z "$rows" ]]; then
-    echo "No Claude sessions found for any clone under $BASE_DIR." >&2
+    if [[ -n "$agent_filter" ]]; then
+        echo "No $(agent_label "$agent_filter") sessions found for any clone under $BASE_DIR." >&2
+    else
+        echo "No agent sessions found for any clone under $BASE_DIR." >&2
+    fi
     exit 0
 fi
 
@@ -63,30 +78,35 @@ ID_LEN=8
 
 # Read survivors into parallel cells, parsing each title now, and track column
 # widths. Order is preserved (newest first) from the sort above.
-declare -a age_cells=() rep_cells=() id_cells=() title_cells=() epoch_cells=()
+declare -a age_cells=() agent_cells=() rep_cells=() id_cells=() title_cells=() epoch_cells=()
 rep_width=3   # min for "REP" header
+agent_width=5 # min for "AGENT" header
 age_width=3   # min for "AGE" header
 id_width=2    # min for "ID" header
-while IFS=$'\t' read -r mtime name file; do
+while IFS=$'\t' read -r mtime agent name file; do
     [[ -n "$mtime" ]] || continue
     age=$(format_relative $(( now - mtime )))
-    id="${file##*/}"; id="${id%.jsonl}"; id="${id:0:ID_LEN}"
-    title=$(claude_session_title "$file")
+    agent_name=$(agent_label "$agent")
+    id=$(agent_session_id "$agent" "$file")
+    id="${id:0:ID_LEN}"
+    title=$(agent_session_title "$agent" "$file")
     [[ -z "$title" ]] && title="—"
     (( ${#title} > SESSION_MAX )) && title="${title:0:SESSION_MAX-1}…"
 
     age_cells+=("$age")
+    agent_cells+=("$agent_name")
     rep_cells+=("$name")
     id_cells+=("$id")
     title_cells+=("$title")
     epoch_cells+=("$mtime")
 
     (( ${#name} > rep_width )) && rep_width=${#name}
+    (( ${#agent_name} > agent_width )) && agent_width=${#agent_name}
     (( ${#age}  > age_width )) && age_width=${#age}
     (( ${#id}   > id_width ))  && id_width=${#id}
 done <<< "$rows"
 
-# A clone with a live claim has a Claude session attached right now, so any of
+# A clone with a live claim has an agent session attached right now, so any of
 # its sessions can't be cleanly resumed — `just resume` would refuse, since
 # only one Claude can run per working tree. Mark those rows so you know before
 # you reach for an id. Check occupancy once per distinct clone shown (a clone
@@ -111,8 +131,8 @@ fi
 # as the status table's stale marker.
 STALE_THRESHOLD=$(( 7 * 86400 ))
 
-printf '%-*s   %-*s   %-*s   %s\n' \
-    "$age_width" "AGE" "$rep_width" "REP" "$id_width" "ID" "SESSION"
+printf '%-*s   %-*s   %-*s   %-*s   %s\n' \
+    "$age_width" "AGE" "$agent_width" "AGENT" "$rep_width" "REP" "$id_width" "ID" "SESSION"
 
 # Print AGE · REP · ID · SESSION. Padded columns precede the free-text SESSION;
 # color codes wrap only the visible token, so they don't shift alignment. Rows
@@ -120,6 +140,7 @@ printf '%-*s   %-*s   %-*s   %s\n' \
 # plain text otherwise so it survives piping) — resume will refuse those.
 for i in "${!age_cells[@]}"; do
     age="${age_cells[$i]}"
+    agent="${agent_cells[$i]}"
     rep="${rep_cells[$i]}"
     id="${id_cells[$i]}"
     title="${title_cells[$i]}"
@@ -130,14 +151,17 @@ for i in "${!age_cells[@]}"; do
     marker=""
     [[ "$occupied_set" == *" $rep "* ]] && marker="   ${c_yellow}(in use)${c_reset}"
 
-    local_age_pad=''; local_rep_pad=''
+    local_age_pad=''; local_agent_pad=''; local_rep_pad=''
     printf -v local_age_pad '%-*s' "$age_width" "$age"
+    printf -v local_agent_pad '%-*s' "$agent_width" "$agent"
     printf -v local_rep_pad '%-*s' "$rep_width" "$rep"
     age_tail="${local_age_pad:${#age}}"
+    agent_tail="${local_agent_pad:${#agent}}"
     rep_tail="${local_rep_pad:${#rep}}"
 
-    printf '%s%s%s%s   %s%s%s%s   %-*s   %s%s\n' \
+    printf '%s%s%s%s   %s%s%s%s   %s%s%s%s   %-*s   %s%s\n' \
         "$ac" "$age" "$c_reset" "$age_tail" \
+        "$c_cyan" "$agent" "$c_reset" "$agent_tail" \
         "$c_cyan" "$rep" "$c_reset" "$rep_tail" \
         "$id_width" "$id" \
         "$title" "$marker"

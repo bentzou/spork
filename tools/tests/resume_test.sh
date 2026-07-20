@@ -48,9 +48,10 @@ make_workspace() {
     local n="$1" i
     WS=$(mktemp -d)
     export CLAUDE_PROJECTS_DIR="$WS/projects"
+    export CODEX_SESSIONS_DIR="$WS/codex-sessions"
     # Hermetic occupancy: no real terminal/claude cwds leak into claim-one.
     export SPORK_PROC_SWEEP="" SPORK_PROC_SWEEP_LOADED=1
-    mkdir -p "$CLAUDE_PROJECTS_DIR"
+    mkdir -p "$CLAUDE_PROJECTS_DIR" "$CODEX_SESSIONS_DIR"
     ln -s "$SPORK_REPO" "$WS/.spork"
     mkdir -p "$WS/.spork.local"
     cat > "$WS/.spork.local/config" <<EOF
@@ -75,6 +76,18 @@ session_for() {
     } > "$dir/$id.jsonl"
 }
 
+codex_session_for() {
+    local name="$1" subpath="$2" id="$3" cwd="$4" title="$5" enc dir
+    dir="$CODEX_SESSIONS_DIR/2026/07/20"
+    mkdir -p "$dir"
+    {
+        printf '{"timestamp":"2026-07-20T00:00:00.000Z","type":"session_meta","payload":{"session_id":"%s","cwd":"%s"}}\n' "$id" "$cwd"
+        printf '{"timestamp":"2026-07-20T00:01:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"%s"}}\n' "$title"
+    } > "$dir/rollout-2026-07-20T00-00-00-$id.jsonl"
+    # Keep args symmetrical with session_for; cwd in the log is authoritative.
+    : "$name" "$subpath"
+}
+
 find_session() { ( cd "$WS" && ./.spork/tools/find-session.sh "$@" ); }
 claim_one()    { ( cd "$WS" && ./.spork/tools/claim-one.sh "$@" ); }
 release()      { ( cd "$WS" && ./.spork/tools/release.sh "$@" ); }
@@ -92,11 +105,11 @@ mkdir -p "$WS/p1/src/app"
 session_for p1 "src-app" "11110000-aaaa-bbbb-cccc-000000000001" "$WS/p1/src/app"
 session_for p2 ""        "22220000-dddd-eeee-ffff-000000000002" "$WS/p2"
 
-want1="p1	$WS/p1/src/app	11110000-aaaa-bbbb-cccc-000000000001"
+want1="claude	p1	$WS/p1/src/app	11110000-aaaa-bbbb-cccc-000000000001"
 check "full id resolves to clone+cwd+id" "$want1" "$(find_session 11110000-aaaa-bbbb-cccc-000000000001)"
-check "subdir cwd preserved verbatim"    "$WS/p1/src/app" "$(find_session 11110000 | cut -f2)"
+check "subdir cwd preserved verbatim"    "$WS/p1/src/app" "$(find_session 11110000 | cut -f3)"
 check "unique prefix resolves"           "$want1" "$(find_session 1111)"
-check "clone of the match"               "p2"     "$(find_session 2222 | cut -f1)"
+check "clone of the match"               "p2"     "$(find_session 2222 | cut -f2)"
 
 # ---------------------------------------------------------------------------
 echo
@@ -112,18 +125,18 @@ check "ambiguous prefix lists both"  "2" "$(find_session abcd 2>&1 >/dev/null | 
 # even if it were a prefix of another it'd still resolve to the exact match.
 session_for p1 "" "ex"     "$WS/p1"      # short id that is a prefix of "ex2..."
 session_for p1 "" "ex2abc" "$WS/p1"
-check "exact id beats longer prefix" "ex" "$(find_session ex | cut -f3)"
+check "exact id beats longer prefix" "ex" "$(find_session ex | cut -f4)"
 
 check "no match -> exit 1"           "1" "$(find_session nope >/dev/null 2>&1; echo $?)"
 check "no arg -> usage exit 2"       "2" "$(find_session >/dev/null 2>&1; echo $?)"
 
 # A session whose log records no cwd falls back to the clone root.
 session_for p2 "" "nocwd000-0000-0000-0000-000000000ccc" ""
-check "missing cwd -> clone root"    "$WS/p2" "$(find_session nocwd | cut -f2)"
+check "missing cwd -> clone root"    "$WS/p2" "$(find_session nocwd | cut -f3)"
 
 # A recorded cwd that no longer exists also falls back to the clone root.
 session_for p2 "" "gonecwd0-0000-0000-0000-000000000ddd" "$WS/p2/was/here"
-check "stale cwd -> clone root"      "$WS/p2" "$(find_session gonecwd | cut -f2)"
+check "stale cwd -> clone root"      "$WS/p2" "$(find_session gonecwd | cut -f3)"
 
 # ---------------------------------------------------------------------------
 echo
@@ -137,19 +150,29 @@ p1_root_log="$CLAUDE_PROJECTS_DIR/${WS//\//-}-p1/aaaa0000-0000-0000-0000-0000000
 p1_sub_log="$CLAUDE_PROJECTS_DIR/${WS//\//-}-p1-src-app/bbbb0000-0000-0000-0000-000000000002.jsonl"
 touch -t 202601010000 "$p1_root_log"
 
-want="p1	$WS/p1/src/app	bbbb0000-0000-0000-0000-000000000002"
+want="claude	p1	$WS/p1/src/app	bbbb0000-0000-0000-0000-000000000002"
 check "clone name -> newest session (cwd + id)" "$want" "$(find_session p1)"
 
 # Recency is last write, same as the status table: age the subdir session
 # and the root one wins.
 touch "$p1_root_log"
 touch -t 202601010000 "$p1_sub_log"
-check "newest by last write wins" "aaaa0000-0000-0000-0000-000000000001" "$(find_session p1 | cut -f3)"
+check "newest by last write wins" "aaaa0000-0000-0000-0000-000000000001" "$(find_session p1 | cut -f4)"
 
 # A clone with no sessions has nothing to resume.
 check "session-less clone -> exit 1" "1" "$(find_session p2 >/dev/null 2>&1; echo $?)"
 out=$(find_session p2 2>&1 >/dev/null)
 case "$out" in *p2*) ok "error names the clone";; *) bad "error names the clone (got [$out])";; esac
+
+# ---------------------------------------------------------------------------
+echo
+echo "find-session: Codex sessions resolve through the agent backend"
+make_workspace 2
+mkdir -p "$WS/p1/src/app"
+codex_session_for p1 "src-app" "cccc0000-0000-0000-0000-000000000001" "$WS/p1/src/app" "Codex work"
+want="codex	p1	$WS/p1/src/app	cccc0000-0000-0000-0000-000000000001"
+check "codex id resolves with agent" "$want" "$(find_session --agent codex cccc)"
+check "codex clone name resolves"    "$want" "$(find_session --agent codex p1)"
 
 # ---------------------------------------------------------------------------
 echo
