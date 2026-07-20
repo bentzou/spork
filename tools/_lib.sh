@@ -366,29 +366,36 @@ format_relative() {
 # session — the AGE and SESSION columns in `just status`, and the per-session
 # history behind `just log`.
 
-# Scan a session jsonl once for everything the readers below need: the last
-# ai-title record and the last record timestamp. Emits exactly two lines —
-# the raw ISO timestamp, then the raw ai-title record line (either may be
-# empty; records are single-line JSON, so line framing is safe). Session
-# logs run to megabytes, so reading the file once instead of once per
-# question is the whole point; parsing stays in the small helpers below.
+# Scan backward for everything the readers below need: the last ai-title
+# record and the last record timestamp. Emits exactly two lines — the raw ISO
+# timestamp, then the raw ai-title record line (either may be empty; records
+# are single-line JSON, so line framing is safe). Active transcripts routinely
+# grow to several megabytes; reverse order lets us stop near the end instead of
+# rereading the whole history on every status refresh.
 claude_session_scan() {
     local file="$1"
     [[ -f "$file" ]] || return 0
-    LC_ALL=C awk '
-        /"type":"ai-title"/ { title = $0 }
-        {
-            # Last "timestamp":"…" occurrence wins, scanning matches within
-            # the line too. Copies embedded in string values (tool output
-            # quoting a record) arrive with escaped quotes and never match.
+    LC_ALL=C tail -r "$file" 2>/dev/null | LC_ALL=C awk '
+        !have_title && /"type":"ai-title"/ {
+            title = $0
+            have_title = 1
+        }
+        !have_ts {
+            # Within the first matching line, the last timestamp occurrence
+            # still wins. Copies embedded in string values (tool output quoting
+            # a record) carry escaped quotes and never match.
             s = $0
             while (match(s, /"timestamp":"[0-9][^"]*"/)) {
                 ts = substr(s, RSTART + 13, RLENGTH - 14)
                 s = substr(s, RSTART + RLENGTH)
             }
+            if (ts != "") have_ts = 1
         }
-        END { print ts; print title }
-    ' "$file" 2>/dev/null
+        have_title && have_ts { print ts; print title; exit }
+        END {
+            if (!(have_title && have_ts)) { print ts; print title }
+        }
+    ' || true
 }
 
 # Parse the aiTitle value out of one ai-title record line, or empty.
@@ -436,7 +443,7 @@ claude_session_title() {
 # Session files are UUID-named jsonl (no newlines), and the mtime is the first
 # space-delimited field, so callers can split on the first space; a path with
 # spaces still survives that split intact (everything after the first space).
-claude_clone_session_files() {
+claude_clone_session_files_raw() {
     local repo_path="${1%/}"
     local encoded="${repo_path//\//-}"
     local root="$CLAUDE_PROJECTS_DIR"
@@ -453,6 +460,24 @@ claude_clone_session_files() {
     (( ${#files[@]} == 0 )) && return 0
 
     stat -f '%m %N' "${files[@]}" 2>/dev/null
+}
+
+# Read one agent+clone slice from a command-scoped session inventory. Inventory
+# rows are "<mtime><TAB><agent><TAB><clone-path><TAB><file>"; the public clone
+# readers retain their historical "<mtime> <file>" output so their callers do
+# not need to know whether an inventory is active.
+session_inventory_clone_files() {
+    local agent="$1" repo_path="${2%/}"
+    local mtime row_agent row_path file
+    [[ -f "${SPORK_SESSION_INVENTORY_FILE:-}" ]] || return 0
+    while IFS=$'\t' read -r mtime row_agent row_path file; do
+        [[ "$row_agent" == "$agent" && "$row_path" == "$repo_path" ]] || continue
+        printf '%s %s\n' "$mtime" "$file"
+    done < "$SPORK_SESSION_INVENTORY_FILE"
+}
+
+claude_clone_session_files() {
+    claude_clone_session_files_raw "$1"
 }
 
 # Epoch of the last timestamped record in a session jsonl, or empty when no
@@ -520,7 +545,10 @@ claude_session_cwd() {
 
 json_string_field() {
     local line="$1" field="$2" value
-    value=$(sed -n 's/.*"'"$field"'":"\([^"]*\)".*/\1/p' <<<"$line")
+    local needle="\"${field}\":\""
+    [[ "$line" == *"$needle"* ]] || return 0
+    value="${line#*"$needle"}"
+    value="${value%%\"*}"
     value=${value//\\\"/\"}
     value=${value//\\\//\/}
     value=${value//\\\\/\\}
@@ -528,8 +556,14 @@ json_string_field() {
 }
 
 codex_session_meta_line() {
-    local file="$1"
-    grep -m1 -F '"type":"session_meta"' "$file" 2>/dev/null
+    local file="$1" line=""
+    IFS= read -r line 2>/dev/null < "$file" || true
+    if [[ "$line" == *'"type":"session_meta"'* ]]; then
+        printf '%s' "$line"
+    else
+        # Older or externally-produced logs may place metadata later.
+        grep -m1 -F '"type":"session_meta"' "$file" 2>/dev/null
+    fi
 }
 
 codex_session_cwd() {
@@ -565,23 +599,24 @@ codex_session_title() {
 codex_session_scan() {
     local file="$1"
     [[ -f "$file" ]] || return 0
-    LC_ALL=C awk '
+    LC_ALL=C tail -r "$file" 2>/dev/null | LC_ALL=C awk '
         {
             s = $0
             while (match(s, /"timestamp":"[0-9][^"]*"/)) {
                 ts = substr(s, RSTART + 13, RLENGTH - 14)
                 s = substr(s, RSTART + RLENGTH)
             }
+            if (ts != "") { print ts; exit }
         }
-        END { print ts }
-    ' "$file" 2>/dev/null
+        END { if (ts == "") print "" }
+    ' || true
 }
 
 codex_iso_epoch() {
     claude_iso_epoch "$1"
 }
 
-codex_clone_session_files() {
+codex_clone_session_files_raw() {
     local repo_path="${1%/}" root="$CODEX_SESSIONS_DIR"
     [[ -d "$root" ]] || return 0
 
@@ -595,6 +630,74 @@ codex_clone_session_files() {
 
     (( ${#files[@]} == 0 )) && return 0
     stat -f '%m %N' "${files[@]}" 2>/dev/null
+}
+
+codex_clone_session_files() {
+    if [[ -f "${SPORK_SESSION_INVENTORY_FILE:-}" ]]; then
+        session_inventory_clone_files codex "$1"
+    else
+        codex_clone_session_files_raw "$1"
+    fi
+}
+
+# Build the session inventory used by one top-level command. Claude's directory
+# layout is already a cheap cwd index, so its clone readers keep using that
+# directly. Codex keeps every transcript in one date tree: scan that tree
+# exactly once, map each metadata cwd to a clone with string comparisons, then
+# stat all survivors in one call. This avoids the old
+# O(clones * all Codex sessions) discovery performed by status/log/resume.
+#
+# Usage: spork_session_inventory_build <output-file> [<clone-path> ...]
+# When paths are omitted, the current workspace's clones are discovered once.
+spork_session_inventory_build() {
+    local output="$1" path file cwd matched i mapping
+    shift
+
+    local paths=("$@") codex_files=()
+    if (( ${#paths[@]} == 0 )); then
+        while IFS= read -r path; do paths+=("${path%/}"); done < <(spork_clones)
+    else
+        for i in "${!paths[@]}"; do paths[i]="${paths[i]%/}"; done
+    fi
+
+    : > "$output"
+
+    if agent_valid codex && [[ -d "$CODEX_SESSIONS_DIR" ]]; then
+        mapping="$output.codex-map.$$"
+        : > "$mapping"
+        while IFS= read -r file; do
+            [[ -f "$file" ]] || continue
+            cwd=$(codex_session_cwd "$file")
+            [[ -n "$cwd" ]] || continue
+            matched=""
+            for path in "${paths[@]}"; do
+                if [[ "$cwd" == "$path" || "$cwd" == "$path"/* ]]; then
+                    matched="$path"
+                    break
+                fi
+            done
+            [[ -n "$matched" ]] || continue
+            codex_files+=("$file")
+            printf '%s\t%s\n' "$matched" "$file" >> "$mapping"
+        done < <(find "$CODEX_SESSIONS_DIR" -type f -name '*.jsonl' 2>/dev/null)
+
+        if (( ${#codex_files[@]} > 0 )); then
+            # Join stat's actual survivors back to their clone paths by file
+            # name. A transcript can disappear while an agent prunes history;
+            # using stat's returned path avoids shifting every later array
+            # index onto the wrong clone in that race.
+            awk -F '\t' '
+                FNR == NR { repo[$2] = $1; next }
+                {
+                    mtime = $0; sub(/ .*/, "", mtime)
+                    file = $0; sub(/^[^ ]+ /, "", file)
+                    if (file in repo)
+                        printf "%s\tcodex\t%s\t%s\n", mtime, repo[file], file
+                }
+            ' "$mapping" <(stat -f '%m %N' "${codex_files[@]}" 2>/dev/null) >> "$output"
+        fi
+        rm -f "$mapping"
+    fi
 }
 
 codex_newest_session_file() {

@@ -56,6 +56,26 @@ check "newest session is subdir" "$new" "$(codex_newest_session_file "$WS/p1")"
 check "generic selector reports codex" "codex" "$(spork_newest_session "$WS/p1" | cut -d'|' -f1)"
 
 echo
+echo "session inventory: indexes once and serves clone readers"
+
+inventory="$WS/session-inventory"
+spork_session_inventory_build "$inventory" "$WS/p1" "$WS/p2"
+export SPORK_SESSION_INVENTORY_FILE="$inventory"
+check "inventory contains every matching Codex session" "3" \
+    "$(awk -F $'\t' '$2 == "codex" { n++ } END { print n+0 }' "$inventory")"
+check "inventory keeps root + subdir mapped to p1" "2" \
+    "$(codex_clone_session_files "$WS/p1" | wc -l | tr -d ' ')"
+
+# A command-scoped inventory is a snapshot. Adding a transcript afterward must
+# not make a clone reader rescan Codex's global tree behind the caller's back.
+codex_session_for "44440000-dddd-eeee-ffff-000000000004" "$WS/p1" "After snapshot" 202607200004 >/dev/null
+check "active inventory prevents a second global scan" "2" \
+    "$(codex_clone_session_files "$WS/p1" | wc -l | tr -d ' ')"
+unset SPORK_SESSION_INVENTORY_FILE
+check "reader fallback still sees live filesystem state" "3" \
+    "$(codex_clone_session_files "$WS/p1" | wc -l | tr -d ' ')"
+
+echo
 nfail=$(wc -l < "$FAILFILE" | tr -d ' ')
 echo "failed: $nfail"
 (( nfail == 0 ))
