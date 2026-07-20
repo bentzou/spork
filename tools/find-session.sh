@@ -20,6 +20,13 @@ fi
 [[ $# -ge 1 && -n "${1:-}" ]] || { echo "usage: find-session.sh [--agent AGENT] <id-or-prefix>" >&2; exit 2; }
 query="$1"
 
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/spork-find-session.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+if [[ "$agent_filter" != "claude" ]]; then
+    spork_session_inventory_build "$tmp/sessions"
+    export SPORK_SESSION_INVENTORY_FILE="$tmp/sessions"
+fi
+
 match_agents() {
     local agent
     if [[ -n "$agent_filter" ]]; then

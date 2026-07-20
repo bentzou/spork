@@ -83,27 +83,34 @@ age_width=3      # min for "AGE" header
 pr_width=2       # min for "PR" header
 now=$(date +%s)
 
-# Each clone's probes (git status over a large tree, session-log stat) are
-# independent and dominated by syscalls, so run them in parallel — one worker
-# per clone writing a record to a temp file keyed by index. Wall time drops
-# from the sum of per-clone probes to the slowest single clone. Presentation
-# (widths, color, ordering) stays serial below, off the collected records.
+# Clone probes are independent and dominated by syscalls, so run them in
+# parallel. A worker checks git first and only scans session history when that
+# row is non-open; open rows intentionally hide AGE/AGENT/SESSION. This keeps
+# git and useful session work overlapped without scanning histories whose
+# results would immediately be discarded.
 emit_clone() {
-    # Five newline-delimited fields: branch, state, agent, last_epoch,
-    # session_title. status_for yields "branch|state"; spork_newest_session
-    # yields "<agent>|<epoch>|<title>".
-    local path="$1" info session_info session_agent session_rest
+    # Five newline-delimited fields: branch, state, agent, epoch, title.
+    local path="$1" info state session_info session_rest
     info=$(status_for "$path")
-    session_info=$(spork_newest_session "$path")
-    session_agent="${session_info%%|*}"
+    state="${info#*|}"
+    if [[ "$state" == "open" ]]; then
+        session_info="||"
+    else
+        session_info=$(spork_newest_session "$path")
+    fi
     session_rest="${session_info#*|}"
     printf '%s\n%s\n%s\n%s\n%s\n' \
-        "${info%%|*}" "${info#*|}" \
-        "$session_agent" "${session_rest%%|*}" "${session_rest#*|}"
+        "${info%%|*}" "$state" "${session_info%%|*}" \
+        "${session_rest%%|*}" "${session_rest#*|}"
 }
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/spork-status.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
+
+# Session discovery is command-scoped: in particular, Codex's global session
+# tree is walked once here rather than once in every per-clone worker.
+spork_session_inventory_build "$tmp/sessions" "${paths[@]}"
+export SPORK_SESSION_INVENTORY_FILE="$tmp/sessions"
 
 # The process sweep (pgrep+lsof) runs as one more background job alongside
 # the per-clone workers — occupancy isn't needed until render time, so its
@@ -123,27 +130,53 @@ SPORK_PROC_SWEEP=$(cat "$tmp/procs")
 # shellcheck disable=SC2034
 SPORK_PROC_SWEEP_LOADED=1
 
+# Overlay occupancy after the process sweep. A live claim/process can turn an
+# otherwise-open git row into in-use; those rare rows need the session probe
+# their worker skipped, so launch just those as a small fallback batch.
+declare -a branch_probes=() state_probes=() agent_probes=() epoch_probes=() session_probes=() live_agent_probes=()
+for i in "${!paths[@]}"; do
+    { IFS= read -r branch; IFS= read -r state; IFS= read -r agent; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
+    was_open=0
+    [[ "$state" == "open" ]] && was_open=1
+    live_agent=""
+    if [[ "$state" != "broken" ]] && clone_occupied "${paths[$i]}"; then
+        state="in use"
+        live_agent=$(claim_agent "$(basename "${paths[$i]}")")
+        if [[ -z "$live_agent" ]]; then
+            for candidate in $SPORK_AGENTS; do
+                proc_attached "${paths[$i]}" "$candidate" && { live_agent="$candidate"; break; }
+            done
+        fi
+    fi
+    branch_probes+=("$branch")
+    state_probes+=("$state")
+    agent_probes+=("$agent")
+    epoch_probes+=("$last_epoch")
+    session_probes+=("$session")
+    live_agent_probes+=("$live_agent")
+    if (( was_open )) && [[ "$state" != "open" ]]; then
+        spork_newest_session "${paths[$i]}" >"$tmp/$i.late-session" &
+    fi
+done
+wait
+
 agent_width=5    # min for "AGENT" header
 declare -a name_cells=() branch_cells=() state_cells=() agent_cells=() age_cells=() last_epoch_cells=() session_cells=() pr_cells=()
 for i in "${!paths[@]}"; do
     name=$(basename "${paths[$i]}")
-    # Read back the five fields this clone's worker wrote, in order.
-    { IFS= read -r branch; IFS= read -r state; IFS= read -r agent; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
-
-    # Someone is in it now, whatever the git state says — a live claim or a
-    # swept claude/shell process. Overlaid here (not in the worker) so the
-    # sweep and the git probes could run concurrently; broken still trumps.
-    if [[ "$state" != "broken" ]] && clone_occupied "${paths[$i]}"; then
-        state="in use"
-        claimed_agent=$(claim_agent "$name")
-        if [[ -n "$claimed_agent" ]]; then
-            agent="$claimed_agent"
-        else
-            for live_agent in $SPORK_AGENTS; do
-                proc_attached "${paths[$i]}" "$live_agent" && { agent="$live_agent"; break; }
-            done
-        fi
+    branch="${branch_probes[$i]}"
+    state="${state_probes[$i]}"
+    agent="${agent_probes[$i]}"
+    last_epoch="${epoch_probes[$i]}"
+    session="${session_probes[$i]}"
+    if [[ -f "$tmp/$i.late-session" ]]; then
+        session_info=$(<"$tmp/$i.late-session")
+        agent="${session_info%%|*}"
+        session_rest="${session_info#*|}"
+        last_epoch="${session_rest%%|*}"
+        session="${session_rest#*|}"
     fi
+    [[ -n "${live_agent_probes[$i]}" ]] && agent="${live_agent_probes[$i]}"
 
     # AGE = time since you last interacted with the clone's newest session
     # (its jsonl's last write). The active-row sort below uses the same

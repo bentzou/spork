@@ -36,6 +36,13 @@ now=$(date +%s)
 # carry fewer columns, so there's room for a fuller title.
 SESSION_MAX=72
 
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/spork-log.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+if [[ "$agent_filter" != "claude" ]]; then
+    spork_session_inventory_build "$tmp/sessions"
+    export SPORK_SESSION_INVENTORY_FILE="$tmp/sessions"
+fi
+
 # Gather "<mtime>\t<agent>\t<clone>\t<file>" for every session in every clone. Title
 # parsing is deferred until after the global sort+truncate below, so we only
 # grep the handful of logs we actually print — not every historical session.
