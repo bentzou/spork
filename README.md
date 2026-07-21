@@ -20,8 +20,9 @@ $ just claude                                   # jc
 # claims p2 — the first open clone — and opens Claude Code in it;
 # p2 shows as "in use" until you exit
 
-$ just claude "hello world"                     # jc "hello world"
-# same, but starts the session with an initial prompt
+$ just claude hello world                       # jc hello world
+# same, but starts the session with the prompt "hello world" —
+# bare words are joined; quotes work too
 
 $ just codex
 # same picker/claim behavior, but opens Codex instead
@@ -121,6 +122,7 @@ alias js='builtin cd ~/Code/myrepo && just sync'
 jg () { local p; p=$(builtin cd ~/Code/myrepo && just go) || return; builtin cd "$p"; }
 jc () {
    local p
+   case " $* " in *" -"*) ;; *) [ $# -gt 1 ] && set -- "$*";; esac
    p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$") || return
    builtin cd "$p"
    printf '\033]0;%s\007' "${p##*/}"
@@ -129,6 +131,7 @@ jc () {
 }
 jx () {
    local p
+   case " $* " in *" -"*) ;; *) [ $# -gt 1 ] && set -- "$*";; esac
    p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$" codex) || return
    builtin cd "$p"
    printf '\033]0;%s\007' "${p##*/}"

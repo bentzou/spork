@@ -24,6 +24,7 @@ default:
 # [positional-arguments]
 # claude *args:
 #     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
+#      case " $* " in *" -"*) ;; *) [ $# -gt 1 ] && set -- "$*";; esac; \
 #      path=$(./.spork/tools/claim.sh "$owner" claude) || exit 1; \
 #      trap 'bash "$rel" "$path" "$owner"' EXIT; \
 #      cd "$path/SUBDIR" && claude "$@"
@@ -32,6 +33,7 @@ default:
 # [positional-arguments]
 # codex *args:
 #     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
+#      case " $* " in *" -"*) ;; *) [ $# -gt 1 ] && set -- "$*";; esac; \
 #      path=$(./.spork/tools/claim.sh "$owner" codex) || exit 1; \
 #      trap 'bash "$rel" "$path" "$owner"' EXIT; \
 #      cd "$path/SUBDIR" && codex "$@"
