@@ -21,18 +21,20 @@ default:
 # to target it (everything else is inherited from .spork/spork.just):
 #
 # [group('use')]
-# claude:
+# [positional-arguments]
+# claude *args:
 #     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
 #      path=$(./.spork/tools/claim.sh "$owner" claude) || exit 1; \
 #      trap 'bash "$rel" "$path" "$owner"' EXIT; \
-#      cd "$path/SUBDIR" && claude
+#      cd "$path/SUBDIR" && claude "$@"
 #
 # [group('use')]
-# codex:
+# [positional-arguments]
+# codex *args:
 #     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
 #      path=$(./.spork/tools/claim.sh "$owner" codex) || exit 1; \
 #      trap 'bash "$rel" "$path" "$owner"' EXIT; \
-#      cd "$path/SUBDIR" && codex
+#      cd "$path/SUBDIR" && codex "$@"
 #
 # [group('use')]
 # go:

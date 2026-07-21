@@ -20,6 +20,9 @@ $ just claude                                   # jc
 # claims p2 — the first open clone — and opens Claude Code in it;
 # p2 shows as "in use" until you exit
 
+$ just claude "hello world"                     # jc "hello world"
+# same, but starts the session with an initial prompt
+
 $ just codex
 # same picker/claim behavior, but opens Codex instead
 
@@ -86,8 +89,8 @@ own recipes (or override shared ones) below the import.
 | `just fetch` | Foreground fetch in every clone. |
 | `just clone` | Create the next clone, wired to the mirror. No network. |
 | `just go` | Print the path of the first open clone (for shell `cd`). |
-| `just claude` | Claim the first open clone and start Claude in it. |
-| `just codex` | Claim the first open clone and start Codex in it. |
+| `just claude [args…]` | Claim the first open clone and start Claude in it; args go to the CLI (e.g. `just claude "hello world"`). |
+| `just codex [args…]` | Claim the first open clone and start Codex in it; args go to the CLI. |
 | `just resume <id\|name>` | Reopen a Claude or Codex session by `just log` ID — or a clone's latest by name. |
 | `just resume-claude <id\|name>` | Reopen only a Claude session. |
 | `just resume-codex <id\|name>` | Reopen only a Codex session. |
@@ -121,7 +124,7 @@ jc () {
    p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$") || return
    builtin cd "$p"
    printf '\033]0;%s\007' "${p##*/}"
-   claude
+   claude "$@"
    ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
 }
 jx () {
@@ -129,7 +132,7 @@ jx () {
    p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$" codex) || return
    builtin cd "$p"
    printf '\033]0;%s\007' "${p##*/}"
-   codex
+   codex "$@"
    ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
 }
 ```

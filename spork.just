@@ -17,23 +17,27 @@
 # The printf stamps the clone name on the terminal title (OSC 0) so the
 # window is findable in Ghostty's Window menu immediately — Claude retitles
 # it with the session topic once one exists.
+# Extra args pass straight to the CLI — `just claude "hello world"` starts the
+# session with that prompt; flags like `--model` work too.
 # Claim the first ready, unclaimed clone, open Claude in it, and release on exit.
 [group('use')]
-claude:
+[positional-arguments]
+claude *args:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
      path=$(./.spork/tools/claim.sh "$owner" claude) || exit 1; \
      trap 'bash "$rel" "$path" "$owner"' EXIT; \
      printf '\033]0;%s\007' "$(basename "$path")"; \
-     cd "$path" && claude
+     cd "$path" && claude "$@"
 
 # Claim the first ready, unclaimed clone, open Codex in it, and release on exit.
 [group('use')]
-codex:
+[positional-arguments]
+codex *args:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
      path=$(./.spork/tools/claim.sh "$owner" codex) || exit 1; \
      trap 'bash "$rel" "$path" "$owner"' EXIT; \
      printf '\033]0;%s\007' "$(basename "$path")"; \
-     cd "$path" && codex
+     cd "$path" && codex "$@"
 
 # OWNER is a long-lived PID that keeps the claim held — pass your interactive
 # shell's $$ so a shell function can `cd` into the path and `release` it later,
