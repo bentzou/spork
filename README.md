@@ -1,10 +1,10 @@
 # spork
 
-Multi-clone workspace for a single git repo. Keep a handful of checkouts
-of the same upstream side-by-side (one per agent, one per in-flight
-branch) without paying disk or network for redundant `.git` data — every
-clone shares one local mirror, so clones are cheap to create and one
-background fetch updates them all.
+Run several coding agents on one repo at the same time. spork keeps a
+pool of clones of your repo (`p1`, `p2`, `p3`, …) — each agent or branch
+gets its own clone, so nobody steps on anyone else's work. The clones
+share one local git mirror, so extra clones cost almost no disk and a
+single download updates all of them.
 
 ```
 $ just status                                   # js
@@ -39,11 +39,12 @@ $ just resume p3                                # or: just resume 686c1b22
 # reopens p3's most recent Claude or Codex session where you left off
 ```
 
-`open` means free to grab; `in use` means someone is in it right now;
-`parked` means unfinished work is sitting there (a feature branch checked
-out, or a dirty tree). SESSION and AGE come from each clone's most recent
-Claude Code or Codex session; AGENT records which backend owns or last touched
-the session. PR links the branch's open pull request. (`js`/`jc` are optional
+Each clone is in one of three states: `open` (free to grab), `in use`
+(an agent or shell is in it right now), or `parked` (unfinished work is
+sitting there — a feature branch checked out, or uncommitted changes).
+SESSION and AGE come from the clone's most recent Claude Code or Codex
+session; AGENT is which tool ran it; PR is the branch's open pull
+request. (`js`/`jc` are optional
 [shell shortcuts](#shell-shortcuts-optional).)
 
 ## Setup
@@ -59,10 +60,10 @@ just sync-setup                  # one-time: create the shared mirror
 just clone                       # create your first clone
 ```
 
-`init` is idempotent — safe to re-run after pulling spork updates. The
-workspace `justfile` imports spork's recipes through the `.spork` symlink,
-so `git -C ~/Code/spork pull` updates every workspace at once. Add your
-own recipes (or override shared ones) below the import.
+`init` is safe to re-run after updating spork. The workspace `justfile`
+imports spork's recipes through the `.spork` symlink, so
+`git -C ~/Code/spork pull` updates every workspace at once. Add your own
+recipes (or override the shared ones) below the import.
 
 ### Config
 
@@ -70,68 +71,71 @@ own recipes (or override shared ones) below the import.
 
 | Var | Meaning |
 | --- | --- |
-| `ORIGIN_URL` | Upstream URL — only matching clones are tracked. |
-| `TRUNK_BRANCH` | The branch `just sync` keeps up to date. |
-| `CLONE_PREFIX` | Naming prefix for new clones. Default `p`. |
-| `POST_CLONE` | Optional command run inside each new clone, e.g. `bun install`. |
-| `SPORK_AGENTS` | Agent backends to scan. Default `claude codex`. |
-| `SPORK_LIVE_COMMANDS` | Process names whose cwd marks a clone occupied. Default `claude codex zsh bash fish`. |
+| `ORIGIN_URL` | URL of the repo to clone. Only clones of this repo are tracked. |
+| `TRUNK_BRANCH` | The main branch to keep up to date. |
+| `CLONE_PREFIX` | Name prefix for clones (`p1`, `p2`, …). Default `p`. |
+| `POST_CLONE` | Command to run inside each new clone, e.g. `bun install`. |
+| `SPORK_AGENTS` | Which agents to look for. Default `claude codex`. |
+| `SPORK_LIVE_COMMANDS` | Programs that count as "someone is in this clone". Default `claude codex zsh bash fish`. |
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `just status` | One-line status per clone (no network). |
-| `just log [N]` | Recent Claude and Codex sessions across the pool, newest first. |
-| `just log-claude [N]` | Recent Claude sessions only. |
-| `just log-codex [N]` | Recent Codex sessions only. |
-| `just sync` | Status table, then a background fetch/pull via the mirror. |
-| `just pull` | Foreground ff-merge of trunk in every clean clone. |
-| `just fetch` | Foreground fetch in every clone. |
-| `just clone` | Create the next clone, wired to the mirror. No network. |
+| `just status` | Show every clone's state. No network. |
+| `just log [N]` | List recent agent sessions across all clones, newest first. |
+| `just log-claude [N]` | Same, Claude sessions only. |
+| `just log-codex [N]` | Same, Codex sessions only. |
+| `just sync` | Show status, then update everything in the background. |
+| `just pull` | Update trunk in every clean clone (waits for it). |
+| `just fetch` | `git fetch` in every clone (waits for it). |
+| `just clone` | Add a new clone to the pool. No network. |
 | `just go` | Print the path of the first open clone (for shell `cd`). |
-| `just claude [args…]` | Claim the first open clone and start Claude in it; args go to the CLI (e.g. `just claude "hello world"`). |
-| `just codex [args…]` | Claim the first open clone and start Codex in it; args go to the CLI. |
-| `just resume <id\|name>` | Reopen a Claude or Codex session by `just log` ID — or a clone's latest by name. |
-| `just resume-claude <id\|name>` | Reopen only a Claude session. |
-| `just resume-codex <id\|name>` | Reopen only a Codex session. |
-| `just clean <name>` | Return a clone to `open`: latest trunk, clean tree, branches kept. |
-| `just sync-setup` | One-time: create the mirror and link existing clones. |
+| `just claude [args…]` | Grab the first open clone and start Claude Code in it; args go to the CLI. |
+| `just codex [args…]` | Same, but starts Codex. |
+| `just resume <id\|name>` | Reopen a past session by `just log` ID — or a clone's latest by name. |
+| `just resume-claude <id\|name>` | Same, Claude sessions only. |
+| `just resume-codex <id\|name>` | Same, Codex sessions only. |
+| `just clean <name>` | Reset a clone back to `open`: latest trunk, clean tree, branches kept. |
+| `just sync-setup` | One-time: create the shared mirror and link existing clones. |
 
 Worth knowing:
 
-- `just go` / `just claude` hand out the first **open** clone — on trunk,
-  clean, in sync, and nobody in it. Concurrent grabs get different clones,
-  and sessions you open by hand inside a clone are detected too, so it
-  won't hand out a clone someone is sitting in.
-- `just resume` takes a session ID from `just log` (a prefix is fine) or a
-  clone name — `just resume p3` reopens whatever Claude or Codex session was
-  last active in p3. It refuses a clone that already has an agent running.
-- `just clean` never touches local branches, and refuses to discard work
-  that exists nowhere else unless you pass `--force`. `--full` also wipes
-  ignored files and reruns `POST_CLONE` — factory-new rather than merely
-  grabbable.
+- `just go` / `just claude` hand out the first **open** clone — one
+  that's on trunk, clean, up to date, and empty. Two grabs at the same
+  time get different clones, and sessions you start by hand inside a
+  clone are noticed too, so it won't hand out a clone someone is
+  sitting in.
+- `just resume` takes a session ID from `just log` (a prefix is enough)
+  or a clone name — `just resume p3` reopens whatever session was last
+  active in p3. It won't touch a clone that already has an agent
+  running.
+- `just clean` never deletes local branches, and refuses to throw away
+  work that exists nowhere else unless you pass `--force`. `--full`
+  also removes ignored files and reruns `POST_CLONE` — factory-new
+  rather than merely grabbable.
 
 ## How it works
 
-All clones share a single object store, which is what makes cloning and
-syncing cheap. `just sync-setup` creates one bare mirror of the upstream
-repo; each clone's `.git/objects/info/alternates` points at the mirror's
-objects, so the repo's history lives on disk exactly once no matter how
-many clones you keep.
+All the clones share one object store. `just sync-setup` creates a
+single bare mirror of your repo; each clone points at the mirror's
+objects (via git "alternates"), so the repo's history is stored on disk
+only once no matter how many clones you keep.
 
-- `just clone` is a `git init` plus a local ref fetch from the mirror —
-  no network at all, and near-zero new disk.
-- `just sync` hits the network exactly once (a single fetch into the
-  mirror), then each clone fetches from the mirror locally. Adding more
-  clones never adds parallel downloads of the same objects.
+That's why everything stays cheap:
+
+- `just clone` downloads nothing — it's a `git init` plus a local fetch
+  from the mirror. No network, almost no new disk.
+- `just sync` downloads from origin once (into the mirror), then each
+  clone updates from the mirror locally. More clones never means more
+  downloads.
 - `just pull` / `just fetch` are the exception: they talk to origin
   directly, once per clone, for when you want a foreground update.
 
 ## Shell shortcuts (optional)
 
-Shorter aliases have to live in your shell config because they need to
-`cd` your real shell:
+These have to live in your shell config because they need to `cd` your
+real shell:
 
 ```bash
 alias js='builtin cd ~/Code/myrepo && just sync'
@@ -156,5 +160,5 @@ jx () {
 }
 ```
 
-Mirror this block per workspace with a different prefix (`xs`/`xg`/`xc`,
+Copy this block per workspace with a different prefix (`xs`/`xg`/`xc`,
 etc.) if you spork more than one repo.
