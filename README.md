@@ -112,6 +112,22 @@ Worth knowing:
   ignored files and reruns `POST_CLONE` — factory-new rather than merely
   grabbable.
 
+## How it works
+
+All clones share a single object store, which is what makes cloning and
+syncing cheap. `just sync-setup` creates one bare mirror of the upstream
+repo; each clone's `.git/objects/info/alternates` points at the mirror's
+objects, so the repo's history lives on disk exactly once no matter how
+many clones you keep.
+
+- `just clone` is a `git init` plus a local ref fetch from the mirror —
+  no network at all, and near-zero new disk.
+- `just sync` hits the network exactly once (a single fetch into the
+  mirror), then each clone fetches from the mirror locally. Adding more
+  clones never adds parallel downloads of the same objects.
+- `just pull` / `just fetch` are the exception: they talk to origin
+  directly, once per clone, for when you want a foreground update.
+
 ## Shell shortcuts (optional)
 
 Shorter aliases have to live in your shell config because they need to
