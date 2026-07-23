@@ -1,10 +1,11 @@
 # spork
 
-Run several coding agents on one repo at the same time. spork keeps a
-pool of clones of your repo (`p1`, `p2`, `p3`, …) — each agent or branch
-gets its own clone, so nobody steps on anyone else's work. The clones
-share one local git mirror, so extra clones cost almost no disk and a
-single download updates all of them.
+Run multiple Claude Code and Codex sessions on one repo, side by side.
+spork keeps a pool of clones (`p1`, `p2`, `p3`, …): one command grabs a
+free clone and starts a session in it, `just status` shows which session
+lives where, and `just resume` reopens any past session where you left
+off. The clones share one local git mirror, so extra clones cost almost
+no disk and a single download updates them all.
 
 ```
 $ just status                                   # js
