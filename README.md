@@ -112,22 +112,6 @@ recipes (or override the shared ones) below the import.
 | `just fetch` | `git fetch` in every clone (waits for it). |
 | `just sync-setup` | One-time: create the shared mirror and link existing clones. |
 
-Worth knowing:
-
-- `just go` / `just claude` hand out the first **open** clone — one
-  that's on trunk, clean, up to date, and empty. Two grabs at the same
-  time get different clones, and sessions you start by hand inside a
-  clone are noticed too, so it won't hand out a clone someone is
-  sitting in.
-- `just resume` takes a session ID from `just log` (a prefix is enough)
-  or a clone name — `just resume p3` reopens whatever session was last
-  active in p3. It won't touch a clone that already has an agent
-  running.
-- `just clean` never deletes local branches, and refuses to throw away
-  work that exists nowhere else unless you pass `--force`. `--full`
-  also removes ignored files and reruns `POST_CLONE` — factory-new
-  rather than merely grabbable.
-
 ## How it works
 
 All the clones share one object store. `just sync-setup` creates a
