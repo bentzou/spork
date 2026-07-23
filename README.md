@@ -134,7 +134,7 @@ These have to live in your shell config because they need to `cd` your
 real shell:
 
 ```bash
-alias js='builtin cd ~/Code/myrepo && just sync'
+alias js='builtin cd ~/Code/myrepo && just status'
 jg () { local p; p=$(builtin cd ~/Code/myrepo && just go) || return; builtin cd "$p"; }
 jc () {
    local p
