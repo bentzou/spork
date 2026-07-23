@@ -134,12 +134,11 @@ That's why everything stays cheap:
 
 ## Why full clones instead of worktrees?
 
-Isolation. Worktrees share branches, config, hooks, and git's internal
-lock files — run several agents at once and that sharing turns into
-collisions. Every spork clone is a complete, ordinary repo, so an agent
-can do anything git allows without touching the other clones. The shared
-mirror keeps the disk cost as low as worktrees would; the isolation is
-the point.
+Isolation. Worktrees share branches, config, and hooks, so with several
+agents working at once you get collisions. Each spork clone is a
+complete, ordinary repo — whatever an agent does in one can't affect the
+others. And the shared mirror means this costs no more disk than
+worktrees would.
 
 ## Shell shortcuts (optional)
 
