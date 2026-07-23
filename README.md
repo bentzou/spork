@@ -13,42 +13,21 @@ one download updates them all.
 
 ```
 $ just status
-REP  SESSION                        STATE   AGENT   AGE  PR     BRANCH
-p1   Build search index syncer      in use  Claude  2m   #4269  feat/search-index-sync
-p3   Fix image cache expiry bug     parked  Claude  5d          fix/image-cache-expiry
-p4   Spike: sqlite cache backend    parked  Codex   12d         main
-p5   Abstract the storage backend   in use  Codex   1d   #4301  feat/storage-interfaces
-p2                                  open                       main
-p6                                  open                       main
+REP  SESSION                      STATE   AGENT
+p1   Fix image cache expiry bug   in use  Claude
+p2   Spike: sqlite cache backend  parked  Codex
+p3                                open
+p4                                open
 
-$ just claude
-# claims p2 — the first open clone — and opens Claude Code in it;
-# p2 shows as "in use" until you exit
-
-$ just claude hello world
-# same, but starts the session with the prompt "hello world"
-
-$ just codex
-# same picker/claim behavior, but opens Codex instead
+$ just claude                # starts claude in p3
+$ just claude hello world    # starts claude with the prompt "hello world"
+$ just codex                 # starts codex
 
 $ just log
 AGE  AGENT   REP  ID        SESSION
-2m   Claude  p1   feb693a8  Build search index syncer            (in use)
-1d   Codex   p5   4082b292  Abstract the storage backend         (in use)
-5d   Claude  p3   686c1b22  Fix image cache expiry bug
-5d   Claude  p3   a6060d87  Debug websocket reconnect backoff
-12d  Codex   p4   9c1f22e0  Spike: sqlite cache backend
-
-$ just resume p3                                # or: just resume 686c1b22
-# reopens p3's most recent Claude or Codex session where you left off
+2m   Claude  p1   feb693a8  Fix image cache expiry bug    (in use)
+5d   Codex   p2   4082b292  Spike: sqlite cache backend
 ```
-
-Each clone is in one of three states: `open` (free to grab), `in use`
-(an agent or shell is in it right now), or `parked` (unfinished work is
-sitting there — a feature branch checked out, or uncommitted changes).
-SESSION and AGE come from the clone's most recent Claude Code or Codex
-session; AGENT is which tool ran it; PR is the branch's open pull
-request.
 
 ## Setup
 
