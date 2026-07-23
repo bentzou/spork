@@ -4,12 +4,18 @@
 # Usage:
 #   mkdir my-workspace && cd my-workspace
 #   ln -s /path/to/spork-repo .spork
-#   ./.spork/init
+#   ./.spork/init [origin-url]
 #
-# Creates .spork.local/{config,runtime/} and a workspace justfile.
-# Idempotent: re-running it leaves existing files alone.
+# Bare, it creates .spork.local/{config,runtime/} and a workspace justfile,
+# then prints the remaining manual steps. Given an origin URL it does the
+# rest too: writes the config (detecting the trunk branch from the remote),
+# creates the shared mirror, and makes the first clone — a ready workspace
+# in one command. Idempotent either way: re-running leaves existing state
+# alone, so a run interrupted mid-way resumes where it stopped.
 
 set -euo pipefail
+
+origin_url="${1:-}"
 
 # When invoked through .spork/init in a workspace, the logical path of
 # this script's directory is <workspace>/.spork (symlink-preserving), so
@@ -27,15 +33,49 @@ fi
 
 workspace=$(cd "$spork_dir/.." && pwd)
 local_dir="$workspace/.spork.local"
+config="$local_dir/config"
 
 mkdir -p "$local_dir/runtime"
 echo "  ensured $local_dir/runtime/"
 
-if [[ -f "$local_dir/config" ]]; then
-    echo "  exists  $local_dir/config"
+if [[ -n "$origin_url" ]]; then
+    # A config someone already filled in wins; only absence or the untouched
+    # example placeholder gets (re)written. A different URL is a conflict —
+    # refuse rather than silently retarget the workspace.
+    existing_url=""
+    if [[ -f "$config" ]]; then
+        existing_url=$(bash -c ". '$config' 2>/dev/null; printf '%s' \"\${ORIGIN_URL:-}\"")
+    fi
+    if [[ -n "$existing_url" && "$existing_url" != *"YOUR-ORG/YOUR-REPO"* ]]; then
+        if [[ "$existing_url" != "$origin_url" ]]; then
+            echo "error: $config already sets ORIGIN_URL=$existing_url" >&2
+            echo "       (asked to init with $origin_url)" >&2
+            exit 1
+        fi
+        echo "  exists  $config"
+    else
+        # Ask the remote for its default branch before writing anything, so a
+        # bad URL or auth failure leaves no half-configured workspace behind.
+        if ! remote_head=$(git ls-remote --symref "$origin_url" HEAD 2>&1); then
+            echo "Cannot reach $origin_url:" >&2
+            echo "$remote_head" | head -3 >&2
+            exit 1
+        fi
+        trunk=$(awk '$1 == "ref:" { sub("refs/heads/", "", $2); print $2; exit }' <<<"$remote_head")
+        if [[ -z "$trunk" ]]; then
+            trunk=main
+            echo "  note: remote has no default branch (detached HEAD); assuming '$trunk'"
+        fi
+        sed -e "s|^ORIGIN_URL=.*|ORIGIN_URL=$origin_url|" \
+            -e "s|^TRUNK_BRANCH=.*|TRUNK_BRANCH=$trunk|" \
+            "$spork_dir/examples/config.example" > "$config"
+        echo "  created $config (ORIGIN_URL=$origin_url, TRUNK_BRANCH=$trunk)"
+    fi
+elif [[ -f "$config" ]]; then
+    echo "  exists  $config"
 else
-    cp "$spork_dir/examples/config.example" "$local_dir/config"
-    echo "  created $local_dir/config"
+    cp "$spork_dir/examples/config.example" "$config"
+    echo "  created $config"
 fi
 
 if [[ -f "$workspace/justfile" ]]; then
@@ -49,11 +89,36 @@ else
     echo "  created $workspace/justfile"
 fi
 
-cat <<EOF
+if [[ -z "$origin_url" ]]; then
+    cat <<EOF
 
 Next:
   1. \$EDITOR $local_dir/config       # set ORIGIN_URL / TRUNK_BRANCH / ...
   2. cd $workspace
   3. just sync-setup                  # creates the shared bare mirror
-  4. just clone                 # create the first clone
+  4. just clone                       # create the first clone
+
+Or do it all in one step: ./.spork/init <origin-url>
+EOF
+    exit 0
+fi
+
+echo
+"$spork_dir/tools/setup-mirror.sh"
+
+# First clone, unless the workspace already has one (adopted or from a
+# previous run). spork_clones needs the config we just ensured above.
+clones=$( ( cd "$workspace" && . .spork/tools/_lib.sh && spork_clones ) 2>/dev/null || true )
+if [[ -n "$clones" ]]; then
+    echo "  exists  clones (skipping first clone)"
+else
+    "$spork_dir/tools/clone.sh"
+fi
+
+cat <<EOF
+
+Workspace ready. Try:
+  cd $workspace
+  just status
+  just claude
 EOF
