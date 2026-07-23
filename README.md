@@ -138,23 +138,13 @@ alias js='builtin cd ~/Code/myrepo && just status'
 jg () { local p; p=$(builtin cd ~/Code/myrepo && just go) || return; builtin cd "$p"; }
 jc () {
    local p
-   case " $* " in *" -"*) ;; *) [ $# -gt 1 ] && set -- "$*";; esac
    p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$") || return
    builtin cd "$p"
-   printf '\033]0;%s\007' "${p##*/}"
    claude "$@"
-   ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
-}
-jx () {
-   local p
-   case " $* " in *" -"*) ;; *) [ $# -gt 1 ] && set -- "$*";; esac
-   p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$" codex) || return
-   builtin cd "$p"
-   printf '\033]0;%s\007' "${p##*/}"
-   codex "$@"
    ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
 }
 ```
 
-Copy this block per workspace with a different prefix (`xs`/`xg`/`xc`,
-etc.) if you spork more than one repo.
+For Codex, make a `jx` the same way with `claim.sh "$$" codex` and
+`codex "$@"`. Copy this block per workspace with a different prefix
+(`xs`/`xg`/`xc`, etc.) if you spork more than one repo.
