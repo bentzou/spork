@@ -322,10 +322,11 @@ age_color() {
 
 # Print one row in REPO · SESSION · STATE · AGE · BRANCH order. Each column but
 # the trailing BRANCH is padded to its width; color codes don't count toward
-# width, so they wrap only the visible token. SESSION is padded by character
-# count rather than printf's byte width, so 1-column multibyte glyphs (e.g. the
-# "—" common in session titles) stay aligned. Cells already hold exactly what's
-# shown — open clones carry a blank AGE/SESSION — so this just renders them.
+# width, so they wrap only the visible token. Every column pads by character
+# count (pad_tail) rather than printf's byte width, so 1-column multibyte
+# glyphs (the "—" placeholder in AGE/SESSION, or one in a session title) stay
+# aligned. Cells already hold exactly what's shown — open clones carry a blank
+# AGE/SESSION — so this just renders them.
 print_row() {
     local i="$1"
     local name="${name_cells[$i]}"
@@ -343,17 +344,13 @@ print_row() {
     local bc="$c_branch"
     [[ "${branch_cells[$i]}" == "$TRUNK_BRANCH" ]] && bc="$c_trunk"
 
-    local name_pad state_pad agent_pad age_pad pr_pad
-    printf -v name_pad  '%-*s' "$repo_width"  "$name"
-    printf -v state_pad '%-*s' "$state_width" "$state"
-    printf -v agent_pad '%-*s' "$agent_width" "$agent"
-    printf -v age_pad   '%-*s' "$age_width"   "$age"
-    printf -v pr_pad    '%-*s' "$pr_width"    "$pr"
-    local name_tail="${name_pad:${#name}}"
-    local state_tail="${state_pad:${#state}}"
-    local agent_tail="${agent_pad:${#agent}}"
-    local age_tail="${age_pad:${#age}}"
-    local pr_tail="${pr_pad:${#pr}}"
+    local name_tail state_tail agent_tail age_tail pr_tail sess_tail
+    pad_tail name_tail  "$repo_width"    "$name"
+    pad_tail state_tail "$state_width"   "$state"
+    pad_tail agent_tail "$agent_width"   "$agent"
+    pad_tail age_tail   "$age_width"     "$age"
+    pad_tail pr_tail    "$pr_width"      "$pr"
+    pad_tail sess_tail  "$session_width" "$session"
 
     # Clickable when the terminal supports OSC 8; underlined blue marks it
     # as a link. Padding counts only the visible "#123", like the color
@@ -364,12 +361,9 @@ print_row() {
         pr_out=$'\033]8;;'"$web_url/pull/${pr#\#}"$'\033\\'"$pr_out"$'\033]8;;\033\\'
     fi
 
-    local sess_pad=$(( session_width - ${#session} ))
-    (( sess_pad < 0 )) && sess_pad=0
-
-    printf '%s%s%s%s   %s%*s   %s%s%s%s   %s%s%s%s   %s%s%s%s   %s%s   %s\n' \
+    printf '%s%s%s%s   %s%s   %s%s%s%s   %s%s%s%s   %s%s%s%s   %s%s   %s\n' \
         "$name_tail" "$sc" "$name" "$c_reset" \
-        "$session" "$sess_pad" "" \
+        "$session" "$sess_tail" \
         "$sc" "$state" "$c_reset" "$state_tail" \
         "$agent_c" "$agent" "$c_reset" "$agent_tail" \
         "$ac" "$age" "$c_reset" "$age_tail" \

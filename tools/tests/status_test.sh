@@ -84,28 +84,30 @@ session_for() {
 # columns rather than by whitespace fields. Robust to column order and to cells
 # that contain spaces (SESSION titles, the two-word "in use" state). Relies on
 # captured (non-tty) output, which carries no color escapes to shift offsets.
+# perl (not awk) because the table pads by display columns, so offsets must be
+# counted in characters — macOS awk's substr counts bytes and drifts on the
+# multibyte "—"/"…" glyphs the table renders.
 field_of() {
     local col="$1" name="$2"
-    status | awk -v col="$col" -v repo="$name" '
-        function trim(s){ gsub(/^ +| +$/, "", s); return s }
-        NR==1 {
-            i = 1
-            while (match(substr($0, i), /[^ ]+/)) {
-                start = i + RSTART - 1
-                labels[++ncol] = substr($0, start, RLENGTH)
-                starts[ncol] = start
-                i = start + RLENGTH
-            }
-            next
+    status | COL="$col" REPO="$name" perl -CSD -ne '
+        chomp;
+        if ($. == 1) {
+            while (/(\S+)/g) { push @labels, $1; push @starts, $-[1]; }
+            next;
         }
-        {
-            if (trim(substr($0, starts[1], starts[2] - starts[1])) != repo) next
-            for (k = 1; k <= ncol; k++) if (labels[k] == col) {
-                len = (k < ncol) ? starts[k+1] - starts[k] : length($0) - starts[k] + 1
-                print trim(substr($0, starts[k], len)); exit
-            }
-            exit
-        }'
+        my $first = substr($_, $starts[0], $starts[1] - $starts[0]);
+        $first =~ s/^\s+|\s+$//g;
+        next unless $first eq $ENV{REPO};
+        for my $k (0 .. $#labels) {
+            next unless $labels[$k] eq $ENV{COL};
+            my $len = $k < $#labels ? $starts[$k+1] - $starts[$k]
+                                    : length($_) - $starts[$k];
+            my $cell = substr($_, $starts[$k], $len < 0 ? 0 : $len);
+            $cell =~ s/^\s+|\s+$//g;
+            print $cell;
+        }
+        exit;
+    '
 }
 state_of() { field_of STATE "$1"; }
 
@@ -324,6 +326,32 @@ printf '{"type":"user","timestamp":"%s","sessionId":"s"}\n{"type":"ai-title","ai
 check "AGE from record timestamp despite fresh mtime" "1h" "$(field_of AGE p1)"
 check "ordering follows record timestamp" "1" \
     "$(( $(row_index_of p1) < $(row_index_of p2) ))"
+
+# ---------------------------------------------------------------------------
+echo
+echo "status: multibyte placeholder cells keep the BRANCH column aligned"
+
+# The "—" placeholder is 1 display column but 3 UTF-8 bytes; padding that
+# counts printf's bytes instead of characters silently swallows two columns
+# of its padding and drags every later column left.
+
+make_workspace 2
+
+# Unit level: the shared helper pads by character count.
+pad_tail_of() { ( cd "$WS" && . ./.spork/tools/_lib.sh && pad_tail t "$1" "$2" && printf '%s' "${#t}" ); }
+check "pad_tail pads the em dash by characters" "2" "$(pad_tail_of 3 '—')"
+check "pad_tail matches ASCII of equal width"   "2" "$(pad_tail_of 3 'x')"
+check "pad_tail clamps overflow to zero"        "0" "$(pad_tail_of 3 'wide-cell')"
+
+# Table level: pX is parked with no session log, so its AGE and SESSION cells
+# both render "—" — the BRANCH cell must still start at the header's column.
+out=$(status)
+hdr=$(head -n1 <<<"$out")
+row=$(grep -E "^ *pX " <<<"$out")
+check "fixture row carries the placeholder" "1" "$(grep -c -- '—' <<<"$row")"
+hdr_prefix="${hdr%%BRANCH*}"
+row_prefix="${row%%feature*}"
+check "BRANCH starts at the header's column" "${#hdr_prefix}" "${#row_prefix}"
 
 # ---------------------------------------------------------------------------
 echo

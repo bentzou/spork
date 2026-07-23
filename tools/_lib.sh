@@ -358,6 +358,17 @@ format_relative() {
     fi
 }
 
+# pad_tail <var> <width> <cell> — store in <var> the spaces that grow <cell>
+# to <width> columns. Counts characters, not printf's field-width bytes: a
+# 1-column multibyte glyph (the "—" placeholder) is 3 UTF-8 bytes, so byte
+# counting swallows two spaces of padding and drags every later column left.
+# Shared by the status and log tables.
+pad_tail() {
+    local n=$(( $2 - ${#3} ))
+    (( n < 0 )) && n=0
+    printf -v "$1" '%*s' "$n" ''
+}
+
 # Claude sessions
 # ---------------
 # Claude Code writes one jsonl per session under CLAUDE_PROJECTS_DIR, in a

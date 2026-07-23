@@ -158,13 +158,9 @@ for i in "${!age_cells[@]}"; do
     marker=""
     [[ "$occupied_set" == *" $rep "* ]] && marker="   ${c_yellow}(in use)${c_reset}"
 
-    local_age_pad=''; local_agent_pad=''; local_rep_pad=''
-    printf -v local_age_pad '%-*s' "$age_width" "$age"
-    printf -v local_agent_pad '%-*s' "$agent_width" "$agent"
-    printf -v local_rep_pad '%-*s' "$rep_width" "$rep"
-    age_tail="${local_age_pad:${#age}}"
-    agent_tail="${local_agent_pad:${#agent}}"
-    rep_tail="${local_rep_pad:${#rep}}"
+    pad_tail age_tail   "$age_width"   "$age"
+    pad_tail agent_tail "$agent_width" "$agent"
+    pad_tail rep_tail   "$rep_width"   "$rep"
 
     printf '%s%s%s%s   %s%s%s%s   %s%s%s%s   %-*s   %s%s\n' \
         "$ac" "$age" "$c_reset" "$age_tail" \
