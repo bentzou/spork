@@ -8,7 +8,7 @@ off. The clones share one local git mirror, so extra clones cost almost
 no disk and a single download updates them all.
 
 ```
-$ just status                                   # js
+$ just status
 REP  SESSION                        STATE   AGENT   AGE  PR     BRANCH
 p1   Build search index syncer      in use  Claude  2m   #4269  feat/search-index-sync
 p3   Fix image cache expiry bug     parked  Claude  5d          fix/image-cache-expiry
@@ -17,11 +17,11 @@ p5   Abstract the storage backend   in use  Codex   1d   #4301  feat/storage-int
 p2                                  open                       main
 p6                                  open                       main
 
-$ just claude                                   # jc
+$ just claude
 # claims p2 — the first open clone — and opens Claude Code in it;
 # p2 shows as "in use" until you exit
 
-$ just claude hello world                       # jc hello world
+$ just claude hello world
 # same, but starts the session with the prompt "hello world" —
 # bare words are joined; quotes work too
 
@@ -45,8 +45,7 @@ Each clone is in one of three states: `open` (free to grab), `in use`
 sitting there — a feature branch checked out, or uncommitted changes).
 SESSION and AGE come from the clone's most recent Claude Code or Codex
 session; AGENT is which tool ran it; PR is the branch's open pull
-request. (`js`/`jc` are optional
-[shell shortcuts](#shell-shortcuts-optional).)
+request.
 
 ## Setup
 
