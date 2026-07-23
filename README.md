@@ -22,8 +22,7 @@ $ just claude
 # p2 shows as "in use" until you exit
 
 $ just claude hello world
-# same, but starts the session with the prompt "hello world" —
-# bare words are joined; quotes work too
+# same, but starts the session with the prompt "hello world"
 
 $ just codex
 # same picker/claim behavior, but opens Codex instead
