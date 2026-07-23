@@ -132,6 +132,15 @@ That's why everything stays cheap:
 - `just pull` / `just fetch` are the exception: they talk to origin
   directly, once per clone, for when you want a foreground update.
 
+## Why full clones instead of worktrees?
+
+Isolation. Worktrees share branches, config, hooks, and git's internal
+lock files — run several agents at once and that sharing turns into
+collisions. Every spork clone is a complete, ordinary repo, so an agent
+can do anything git allows without touching the other clones. The shared
+mirror keeps the disk cost as low as worktrees would; the isolation is
+the point.
+
 ## Shell shortcuts (optional)
 
 These have to live in your shell config because they need to `cd` your
