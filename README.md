@@ -81,23 +81,37 @@ recipes (or override the shared ones) below the import.
 
 ## Commands
 
+Grouped the same way the `just` menu shows them.
+
+### use — grab a clone and work in it
+
 | Command | What it does |
 | --- | --- |
-| `just status` | Show every clone's state. No network. |
-| `just log [N]` | List recent agent sessions across all clones, newest first. |
-| `just log-claude [N]` | Same, Claude sessions only. |
-| `just log-codex [N]` | Same, Codex sessions only. |
-| `just sync` | Show status, then update everything in the background. |
-| `just pull` | Update trunk in every clean clone (waits for it). |
-| `just fetch` | `git fetch` in every clone (waits for it). |
-| `just clone` | Add a new clone to the pool. No network. |
-| `just go` | Print the path of the first open clone (for shell `cd`). |
 | `just claude [args…]` | Grab the first open clone and start Claude Code in it; args go to the CLI. |
 | `just codex [args…]` | Same, but starts Codex. |
+| `just go` | Print the path of the first open clone (for shell `cd`). |
 | `just resume <id\|name>` | Reopen a past session by `just log` ID — or a clone's latest by name. |
 | `just resume-claude <id\|name>` | Same, Claude sessions only. |
 | `just resume-codex <id\|name>` | Same, Codex sessions only. |
+
+### manage — take care of the pool
+
+| Command | What it does |
+| --- | --- |
+| `just clone` | Add a new clone to the pool. No network. |
+| `just log [N]` | List recent sessions across all clones, newest first. |
+| `just log-claude [N]` | Same, Claude sessions only. |
+| `just log-codex [N]` | Same, Codex sessions only. |
+| `just pull` | Update trunk in every clean clone (waits for it). |
 | `just clean <name>` | Reset a clone back to `open`: latest trunk, clean tree, branches kept. |
+| `just status` | Show every clone's state. No network. |
+
+### plumbing — hidden from the `just` menu, still callable
+
+| Command | What it does |
+| --- | --- |
+| `just sync` | Show status, then update everything in the background. |
+| `just fetch` | `git fetch` in every clone (waits for it). |
 | `just sync-setup` | One-time: create the shared mirror and link existing clones. |
 
 Worth knowing:
