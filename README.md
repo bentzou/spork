@@ -114,20 +114,11 @@ recipes (or override the shared ones) below the import.
 
 ## How it works
 
-All the clones share one object store. `just sync-setup` creates a
-single bare mirror of your repo; each clone points at the mirror's
-objects (via git "alternates"), so the repo's history is stored on disk
-only once no matter how many clones you keep.
-
-That's why everything stays cheap:
-
-- `just clone` downloads nothing — it's a `git init` plus a local fetch
-  from the mirror. No network, almost no new disk.
-- `just sync` downloads from origin once (into the mirror), then each
-  clone updates from the mirror locally. More clones never means more
-  downloads.
-- `just pull` / `just fetch` are the exception: they talk to origin
-  directly, once per clone, for when you want a foreground update.
+`just sync-setup` creates one shared mirror of your repo, and every
+clone borrows its git history from it. So history is stored on disk
+only once no matter how many clones you have, `just clone` needs no
+network and almost no disk, and `just sync` downloads new commits once
+and hands them to every clone.
 
 ## Why full clones instead of worktrees?
 
