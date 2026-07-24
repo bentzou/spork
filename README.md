@@ -37,7 +37,7 @@ $ just resume p2             # reopens p2's last session
 git clone git@github.com:bentzou/spork.git ~/Code/spork    # once, anywhere
 
 mkdir -p ~/Code/myrepo && cd ~/Code/myrepo    # will hold all the clones
-ln -s ~/Code/spork .spork
+ln -s ~/Code/spork .spork                     # wires spork into the workspace
 ./.spork/init git@github.com:me/myrepo.git   # config + mirror + first clone
 just clone                                   # repeat to grow the pool
 ```
