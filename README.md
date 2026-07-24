@@ -47,16 +47,9 @@ workspace directory — delete the directory to undo setup entirely.
 
 ### Config
 
-`.spork.local/config`:
-
-| Var | Meaning |
-| --- | --- |
-| `ORIGIN_URL` | URL of the repo to clone. Only clones of this repo are tracked. |
-| `TRUNK_BRANCH` | The main branch to keep up to date. |
-| `CLONE_PREFIX` | Name prefix for clones (`p1`, `p2`, …). Default `p`. |
-| `POST_CLONE` | Command to run inside each new clone, e.g. `bun install`. |
-| `SPORK_AGENTS` | Which agents to look for. Default `claude codex`. |
-| `SPORK_LIVE_COMMANDS` | Programs that count as "someone is in this clone". Default `claude codex zsh bash fish`. |
+`init` fills in `.spork.local/config` for you. The one setting worth
+adding by hand is `POST_CLONE` — a command run inside each new clone,
+e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
 
 ## Commands
 
