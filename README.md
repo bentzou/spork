@@ -33,6 +33,8 @@ $ just resume p2             # reopens p2's last session
 
 ## Setup
 
+### New workspace
+
 ```sh
 git clone git@github.com:bentzou/spork.git ~/Code/spork    # once, anywhere
 
@@ -45,7 +47,7 @@ just clone                                    # repeat to grow the pool
 `init` is safe to re-run, and everything spork creates lives inside the
 workspace directory — delete the directory to undo setup entirely.
 
-### Shell shortcuts (optional)
+### Shell shortcuts
 
 These have to live in your shell config because they need to `cd` your
 real shell:
