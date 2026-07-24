@@ -99,29 +99,29 @@ e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
 
 | Command | What it does |
 | --- | --- |
-| `just claude "hello world"` | Grab the first open clone and start Claude Code in it, with an optional starting prompt. |
-| `just codex "hello world"` | Same, but starts Codex. |
-| `just go` | Print the path of the first open clone (for shell `cd`). |
+| `just claude "hello world"` | Start a session in a free clone, with an optional prompt. |
+| `just codex "hello world"` | Start a session in a free clone, with an optional prompt. |
+| `just go` | Print the path of a free clone. |
 
 ### manage — take care of the pool
 
 | Command | What it does |
 | --- | --- |
-| `just clone` | Add a new clone to the pool. No network. |
-| `just log [N]` | List recent sessions across all clones, newest first. |
-| `just pull` | Update trunk in every clean clone (waits for it). |
-| `just clean <name>` | Reset a clone back to `open`: latest trunk, clean tree, branches kept. |
-| `just status` | Show every clone's state. No network. |
+| `just clone` | Add a clone to the pool. |
+| `just log [N]` | List recent sessions. |
+| `just pull` | Update every clean clone. |
+| `just clean <name>` | Reset a clone back to `open`. |
+| `just status` | Show each clone's state. |
 
 ### plumbing — everything else
 
 | Command | What it does |
 | --- | --- |
-| `just resume <id\|name>` | Reopen a past session by `just log` ID — or a clone's latest by name. |
-| `just resume-claude <id\|name>` | Same, Claude sessions only. |
-| `just resume-codex <id\|name>` | Same, Codex sessions only. |
-| `just log-claude [N]` | Recent Claude sessions only. |
-| `just log-codex [N]` | Recent Codex sessions only. |
-| `just sync` | Show status, then update everything in the background. |
-| `just fetch` | `git fetch` in every clone (waits for it). |
-| `just sync-setup` | One-time: create the shared mirror and link existing clones. |
+| `just resume <id\|name>` | Reopen a past session. |
+| `just resume-claude <id\|name>` | Reopen a past Claude session. |
+| `just resume-codex <id\|name>` | Reopen a past Codex session. |
+| `just log-claude [N]` | List recent Claude sessions. |
+| `just log-codex [N]` | List recent Codex sessions. |
+| `just sync` | Update everything in the background. |
+| `just fetch` | Fetch every clone. |
+| `just sync-setup` | One-time: create the shared mirror. |
