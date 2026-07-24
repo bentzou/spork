@@ -37,14 +37,11 @@ git clone git@github.com:bentzou/spork.git ~/Code/spork    # once, anywhere
 mkdir -p ~/Code/myrepo && cd ~/Code/myrepo
 ln -s ~/Code/spork .spork
 ./.spork/init git@github.com:me/myrepo.git   # config + mirror + first clone
+just clone                                   # repeat to grow the pool
 ```
 
-`init` detects the repo's default branch, writes `.spork.local/config`,
-creates the shared mirror, and makes your first clone. Run it with no
-URL to scaffold the config only and finish by hand. Safe to re-run
-either way. The workspace `justfile` imports spork's recipes through the
-`.spork` symlink, so `git -C ~/Code/spork pull` updates every workspace
-at once.
+`init` is safe to re-run, and everything spork creates lives inside the
+workspace directory — delete the directory to undo setup entirely.
 
 ### Config
 
