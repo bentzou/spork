@@ -20,13 +20,15 @@ p3                                open
 p4                                open
 
 $ just claude                # starts claude in p3
-$ just claude hello world    # starts claude with the prompt "hello world"
+$ just claude hello world    # starts claude with that prompt
 $ just codex                 # starts codex
 
 $ just log
 AGE  AGENT   REP  ID        SESSION
 2m   Claude  p1   feb693a8  Fix image cache expiry bug    (in use)
 5d   Codex   p2   4082b292  Spike: sqlite cache backend
+
+$ just resume p2             # reopens p2's last session
 ```
 
 ## Setup
