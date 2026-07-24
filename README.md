@@ -45,31 +45,7 @@ just clone                                    # repeat to grow the pool
 `init` is safe to re-run, and everything spork creates lives inside the
 workspace directory — delete the directory to undo setup entirely.
 
-## How it works
-
-`just sync-setup` creates one shared mirror of your repo, and every
-clone borrows its git history from it. So history is stored on disk
-only once no matter how many clones you have, `just clone` needs no
-network and almost no disk, and `just sync` downloads new commits once
-and hands them to every clone.
-
-## Why full clones instead of worktrees?
-
-Isolation. Worktrees share branches, config, and hooks, so with several
-agents working at once you get collisions. Each spork clone is a
-complete, ordinary repo — whatever an agent does in one can't affect the
-others. And the shared mirror means this costs no more disk than
-worktrees would.
-
-## Customizing (optional)
-
-### Config
-
-`init` fills in `.spork.local/config` for you. The one setting worth
-adding by hand is `POST_CLONE` — a command run inside each new clone,
-e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
-
-### Shell shortcuts
+### Shell shortcuts (optional)
 
 These have to live in your shell config because they need to `cd` your
 real shell:
@@ -89,6 +65,28 @@ jc () {
 For Codex, make a `jx` the same way with `claim.sh "$$" codex` and
 `codex "$@"`. Copy this block per workspace with a different prefix
 (`xs`/`xg`/`xc`, etc.) if you spork more than one repo.
+
+## How it works
+
+`just sync-setup` creates one shared mirror of your repo, and every
+clone borrows its git history from it. So history is stored on disk
+only once no matter how many clones you have, `just clone` needs no
+network and almost no disk, and `just sync` downloads new commits once
+and hands them to every clone.
+
+## Why full clones instead of worktrees?
+
+Isolation. Worktrees share branches, config, and hooks, so with several
+agents working at once you get collisions. Each spork clone is a
+complete, ordinary repo — whatever an agent does in one can't affect the
+others. And the shared mirror means this costs no more disk than
+worktrees would.
+
+## Config
+
+`init` fills in `.spork.local/config` for you. The one setting worth
+adding by hand is `POST_CLONE` — a command run inside each new clone,
+e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
 
 ## Commands
 
