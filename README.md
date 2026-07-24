@@ -53,21 +53,21 @@ These have to live in your shell config because they need to `cd` your
 real shell:
 
 ```bash
-alias js='builtin cd ~/Code/myrepo && just status'
-jg () { local p; p=$(builtin cd ~/Code/myrepo && just go) || return; builtin cd "$p"; }
+alias js='cd ~/Code/myrepo && just status'
+jg () { local p; p=$(cd ~/Code/myrepo && just go) || return; cd "$p"; }
 jc () {
    local p
-   p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$") || return
-   builtin cd "$p"
+   p=$(cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$") || return
+   cd "$p"
    claude "$@"
-   ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
+   ( cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
 }
 jx () {
    local p
-   p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$" codex) || return
-   builtin cd "$p"
+   p=$(cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$" codex) || return
+   cd "$p"
    codex "$@"
-   ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
+   ( cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
 }
 ```
 
