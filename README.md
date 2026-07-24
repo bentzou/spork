@@ -51,6 +51,22 @@ workspace directory — delete the directory to undo setup entirely.
 adding by hand is `POST_CLONE` — a command run inside each new clone,
 e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
 
+## How it works
+
+`just sync-setup` creates one shared mirror of your repo, and every
+clone borrows its git history from it. So history is stored on disk
+only once no matter how many clones you have, `just clone` needs no
+network and almost no disk, and `just sync` downloads new commits once
+and hands them to every clone.
+
+## Why full clones instead of worktrees?
+
+Isolation. Worktrees share branches, config, and hooks, so with several
+agents working at once you get collisions. Each spork clone is a
+complete, ordinary repo — whatever an agent does in one can't affect the
+others. And the shared mirror means this costs no more disk than
+worktrees would.
+
 ## Commands
 
 ### use — grab a clone and work in it
@@ -83,22 +99,6 @@ e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
 | `just sync` | Show status, then update everything in the background. |
 | `just fetch` | `git fetch` in every clone (waits for it). |
 | `just sync-setup` | One-time: create the shared mirror and link existing clones. |
-
-## How it works
-
-`just sync-setup` creates one shared mirror of your repo, and every
-clone borrows its git history from it. So history is stored on disk
-only once no matter how many clones you have, `just clone` needs no
-network and almost no disk, and `just sync` downloads new commits once
-and hands them to every clone.
-
-## Why full clones instead of worktrees?
-
-Isolation. Worktrees share branches, config, and hooks, so with several
-agents working at once you get collisions. Each spork clone is a
-complete, ordinary repo — whatever an agent does in one can't affect the
-others. And the shared mirror means this costs no more disk than
-worktrees would.
 
 ## Shell shortcuts (optional)
 
