@@ -62,11 +62,14 @@ jc () {
    claude "$@"
    ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
 }
+jx () {
+   local p
+   p=$(builtin cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$" codex) || return
+   builtin cd "$p"
+   codex "$@"
+   ( builtin cd ~/Code/myrepo && ./.spork/tools/release.sh "$p" "$$" )
+}
 ```
-
-For Codex, make a `jx` the same way with `claim.sh "$$" codex` and
-`codex "$@"`. Copy this block per workspace with a different prefix
-(`xs`/`xg`/`xc`, etc.) if you spork more than one repo.
 
 ## How it works
 
