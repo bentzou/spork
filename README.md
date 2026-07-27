@@ -21,6 +21,7 @@ p4                                open
 
 $ just claude                # starts claude in p3
 $ just claude hello world    # starts claude with that prompt
+
 $ just codex                 # starts codex
 
 $ just log
@@ -29,6 +30,21 @@ AGE  AGENT   REP  ID        SESSION
 5d   Codex   p2   4082b292  Spike: sqlite cache backend
 
 $ just resume p2             # reopens p2's last session
+```
+
+Or, with the [shell shortcuts](#shell-shortcuts) installed:
+
+```
+$ js                         # just status
+REP  SESSION                      STATE   AGENT
+p1   Fix image cache expiry bug   in use  Claude
+p2   Spike: sqlite cache backend  parked  Codex
+
+$ jc                         # just claude - starts claude in next open clone
+$ jc hello world             # starts claude with that prompt
+
+$ jx                         # just codex - starts codex in next open clone
+$ jx hello world             # starts codex with that prompt
 ```
 
 ## Setup
