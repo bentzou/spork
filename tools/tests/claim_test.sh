@@ -113,6 +113,18 @@ make_workspace 3
 
     # release by a non-owner whose claim is live must be refused.
     release_claim p2 "$b"; check "non-owner release refused" 1 $?
+
+    # claim_epoch dates the *current* claim (the pid file's mtime): empty when
+    # unclaimed, now-ish when claimed, and refreshed by a stale reclaim even
+    # though the claim dir itself survives from the previous owner.
+    check "unclaimed clone has no claim epoch" "" "$(claim_epoch p3)"
+    check "claimed clone's epoch is current" "1" "$(( $(date +%s) - $(claim_epoch p2) < 60 ))"
+    echo "$d" > "$RUNTIME_DIR/claims/p2/pid"          # dead owner again
+    touch -t 202601010000 "$RUNTIME_DIR/claims/p2/pid"  # ...from long ago
+    old=$(claim_epoch p2)
+    try_claim p2 "$b"; check "reclaim of the backdated stale claim succeeds" 0 $?
+    check "stale reclaim refreshes the epoch" "1" "$(( $(claim_epoch p2) > old ))"
+
     kill "$a" "$b" 2>/dev/null
 ) || bad "unit subshell errored"
 

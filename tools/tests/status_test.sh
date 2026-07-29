@@ -262,6 +262,23 @@ check "dirty + codex claim -> in use"             "in use" "$(state_of p3)"
 check "non-open row also scopes to the occupant"  "—"      "$(field_of SESSION p3)"
 release_clone p3 "$b" >/dev/null
 
+# Same-agent case: agent scoping can't tell a fresh claude launch from the
+# previous claude session, but the claim's timestamp can — a transcript with
+# no activity since the occupant took the clone belongs to a session that
+# ended before they arrived.
+session_for p1 "Yesterday's claude work"
+touch -t "$(date -v-1H +%Y%m%d%H%M)" "$CLAUDE_PROJECTS_DIR/${WS//\//-}-p1/s.jsonl"
+claim_clone p1 "$b" claude >/dev/null
+check "claude claim over claude history -> in use" "in use" "$(state_of p1)"
+check "previous same-agent title is not shown"     "—"      "$(field_of SESSION p1)"
+check "AGE blank until the occupant interacts"     "—"      "$(field_of AGE p1)"
+
+# Activity after the claim credits the transcript to the occupant: a resumed
+# session (fresh appends) or a new one recording its first message shows.
+session_for p1 "Resumed claude work"
+check "post-claim activity shows its title" "Resumed claude work" "$(field_of SESSION p1)"
+release_clone p1 "$b" >/dev/null
+
 # ---------------------------------------------------------------------------
 echo
 echo "status: pull/push when trunk diverges from a configured upstream"

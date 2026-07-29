@@ -298,6 +298,14 @@ claim_agent() {
     printf '%s' "$agent"
 }
 
+# Epoch when the clone's current claim was taken — the pid file's mtime, which
+# every claim and stale-reclaim rewrites. (The claim dir's own timestamps
+# survive a stale reclaim and would date the previous owner.) Empty when
+# unclaimed.
+claim_epoch() {
+    stat -f %m "$CLAIMS_DIR/$1/pid" 2>/dev/null
+}
+
 # True if <clone-name> has a live claim (owner process still running).
 claim_live() {
     local name="$1" owner
@@ -872,4 +880,30 @@ spork_newest_session() {
     else
         printf '||'
     fi
+}
+
+# Newest session credited to a clone's occupant, as "<agent>|<epoch>|<title>".
+# Scoped to <agent> when known (empty scans every agent), and blanked to
+# "<agent>||" when the newest activity predates <since> — the claim's epoch:
+# a transcript untouched since the occupant took the clone belongs to a
+# session that ended before they arrived, not to them. A fresh agent records
+# nothing until its first message (Codex persists its rollout then; Claude
+# likewise creates the log on first interaction), and a resumed session gets
+# fresh appends, so post-claim activity is what marks a transcript as the
+# occupant's. Empty <since> skips the cutoff (process-only occupancy has no
+# claim time to compare against).
+spork_occupant_session() {
+    local path="$1" agent="${2:-}" since="${3:-}" info epoch
+    if [[ -n "$agent" ]]; then
+        info="$agent|$(agent_newest_session "$agent" "$path")"
+    else
+        info=$(spork_newest_session "$path")
+    fi
+    if [[ -n "$since" ]]; then
+        epoch="${info#*|}"; epoch="${epoch%%|*}"
+        if [[ -n "$epoch" ]] && (( epoch < since )); then
+            info="${info%%|*}||"
+        fi
+    fi
+    printf '%s' "$info"
 }

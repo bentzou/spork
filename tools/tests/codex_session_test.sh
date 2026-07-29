@@ -63,6 +63,21 @@ check "no transcript yet -> empty sentinel" "|" "$(codex_newest_session "$WS/p3"
 check "agent dispatcher passes the sentinel through" "|" "$(agent_newest_session codex "$WS/p3")"
 
 echo
+echo "occupant session: the claim-time cutoff blanks pre-claim transcripts"
+
+# The p1 fixtures were recorded at 2026-07-20T00:01Z. Relative to a claim
+# taken before that, they're the occupant's; taken after, they're a previous
+# session's and only agent survives (SESSION/AGE render as placeholders).
+newest="codex|$(agent_newest_session codex "$WS/p1")"
+check "post-claim activity passes through"   "$newest"  "$(spork_occupant_session "$WS/p1" codex 1)"
+check "pre-claim transcript is blanked"      "codex||"  "$(spork_occupant_session "$WS/p1" codex 9999999999)"
+check "no cutoff (process-only) passes through" "$newest" "$(spork_occupant_session "$WS/p1" codex '')"
+check "unknown agent scans all, cutoff still applies" "codex||" \
+    "$(spork_occupant_session "$WS/p1" '' 9999999999)"
+check "no transcript at all stays the empty row" "codex||" \
+    "$(spork_occupant_session "$WS/p3" codex 1)"
+
+echo
 echo "session inventory: indexes once and serves clone readers"
 
 inventory="$WS/session-inventory"

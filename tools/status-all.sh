@@ -136,20 +136,28 @@ SPORK_PROC_SWEEP_LOADED=1
 #
 # SESSION/AGE on an occupied row must describe the occupant's own session, not
 # merely the clone's newest transcript: a freshly launched agent may not have
-# written one yet (Codex persists its rollout on the first message), so the
-# cross-agent newest can be a finished session of a *different* agent — pairing
-# that title with the live AGENT would claim the occupant is running it. When
-# the occupant is known and the probed session isn't theirs, re-probe scoped
-# to that agent; no session of theirs yet renders as the "—" placeholders.
+# written one yet (agents persist transcripts on the first message), so the
+# newest transcript can be a finished session — of a different agent or a
+# previous run of the same one. The claim's epoch settles it: the claim is
+# taken right before the agent launches, so only post-claim activity is the
+# occupant's (spork_occupant_session). Process-only occupancy has no claim
+# time, so it degrades to scoping by the observed agent alone.
 declare -a branch_probes=() state_probes=() agent_probes=() epoch_probes=() session_probes=() live_agent_probes=()
 for i in "${!paths[@]}"; do
     { IFS= read -r branch; IFS= read -r state; IFS= read -r agent; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
     was_open=0
     [[ "$state" == "open" ]] && was_open=1
-    live_agent=""
+    live_agent="" claim_ts=""
     if [[ "$state" != "broken" ]] && clone_occupied "${paths[$i]}"; then
         state="in use"
-        live_agent=$(claim_agent "$(basename "${paths[$i]}")")
+        clone_name=$(basename "${paths[$i]}")
+        # The claim only speaks for the occupant while its owner lives — a
+        # stale claim beside a live process describes whoever left, not
+        # whoever's there now.
+        if claim_live "$clone_name"; then
+            live_agent=$(claim_agent "$clone_name")
+            claim_ts=$(claim_epoch "$clone_name")
+        fi
         if [[ -z "$live_agent" ]]; then
             for candidate in $SPORK_AGENTS; do
                 proc_attached "${paths[$i]}" "$candidate" && { live_agent="$candidate"; break; }
@@ -162,13 +170,15 @@ for i in "${!paths[@]}"; do
     epoch_probes+=("$last_epoch")
     session_probes+=("$session")
     live_agent_probes+=("$live_agent")
-    if [[ -n "$live_agent" && "$live_agent" != "$agent" ]]; then
-        # Prefix the agent so the file parses like spork_newest_session's
-        # "<agent>|<epoch>|<title>" (agent_newest_session emits "<epoch>|<title>").
-        { printf '%s|' "$live_agent"; agent_newest_session "$live_agent" "${paths[$i]}"; } \
-            >"$tmp/$i.late-session" &
-    elif (( was_open )) && [[ "$state" != "open" ]]; then
-        spork_newest_session "${paths[$i]}" >"$tmp/$i.late-session" &
+    if [[ "$state" == "in use" ]]; then
+        if [[ -n "$claim_ts" || ( -n "$live_agent" && "$live_agent" != "$agent" ) ]]; then
+            spork_occupant_session "${paths[$i]}" "$live_agent" "$claim_ts" \
+                >"$tmp/$i.late-session" &
+        elif (( was_open )); then
+            # Occupied by an unidentified process and the worker skipped its
+            # probe: fall back to the clone's newest session, unattributed.
+            spork_newest_session "${paths[$i]}" >"$tmp/$i.late-session" &
+        fi
     fi
 done
 wait
