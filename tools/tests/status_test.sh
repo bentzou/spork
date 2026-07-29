@@ -80,6 +80,16 @@ session_for() {
     printf '{"type":"ai-title","aiTitle":"%s","sessionId":"sid"}\n' "$title" \
         > "$CLAUDE_PROJECTS_DIR/$enc/s.jsonl"
 }
+# Write a Codex rollout for clone <name>, timestamped now, at the date-tree
+# path Codex would use (metadata cwd is what maps it back to the clone).
+codex_session_for() {
+    local name="$1" title="$2" dir="$CODEX_SESSIONS_DIR/2026/07/29" ts
+    ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+    mkdir -p "$dir"
+    printf '{"timestamp":"%s","type":"session_meta","payload":{"session_id":"sid-%s","cwd":"%s"}}\n{"timestamp":"%s","type":"event_msg","payload":{"type":"user_message","message":"%s"}}\n' \
+        "$ts" "$name" "$WS/$name" "$ts" "$title" \
+        > "$dir/rollout-2026-07-29T00-00-00-sid-$name.jsonl"
+}
 # Value of column <col> for clone <name>, parsed by the header's character
 # columns rather than by whitespace fields. Robust to column order and to cells
 # that contain spaces (SESSION titles, the two-word "in use" state). Relies on
@@ -123,7 +133,8 @@ sweep() {
 
 # Claim/release a clone by name via the sourced helpers (claim.sh only grabs
 # *ready* clones, so use try_claim directly to occupy a dirty one too).
-claim_clone()   { ( cd "$WS" && . ./.spork/tools/_lib.sh && try_claim "$1" "$2" ); }
+# Optional third arg names the claiming agent (try_claim defaults to claude).
+claim_clone()   { ( cd "$WS" && . ./.spork/tools/_lib.sh && try_claim "$@" ); }
 release_clone() { ( cd "$WS" && . ./.spork/tools/_lib.sh && release_claim "$1" "$2" ); }
 
 # ---------------------------------------------------------------------------
@@ -208,6 +219,48 @@ out=$(status)
 check "open clone shows no session"        "0" "$(grep -Fc -- "Stale title on an open clone" <<<"$out")"
 check "open clone SESSION cell is blank"   ""  "$(field_of SESSION p2)"
 check "open clone still shows its branch"  "main" "$(field_of BRANCH p2)"
+
+# ---------------------------------------------------------------------------
+echo
+echo "status: SESSION describes the live occupant, not another agent's transcript"
+
+make_workspace 3
+b=$(live_pid)
+
+# p1's only transcript is a finished Claude session; a fresh Codex claim means
+# Codex is in the clone but hasn't recorded anything yet (Codex persists its
+# rollout on the first message). The row must not pair AGENT=Codex with the
+# dead Claude session's title — SESSION and AGE fall back to placeholders.
+session_for p1 "Explore repository contents"
+claim_clone p1 "$b" codex >/dev/null
+check "codex claim over claude history -> in use" "in use" "$(state_of p1)"
+check "AGENT is the live occupant"                "Codex"  "$(field_of AGENT p1)"
+check "stale claude title is not shown"           "—"      "$(field_of SESSION p1)"
+check "AGE placeholder until the occupant records" "—"     "$(field_of AGE p1)"
+
+# Once the occupant has a transcript of its own, its title renders normally.
+codex_session_for p1 "Codex takes over"
+check "occupant's own transcript shows its title" "Codex takes over" "$(field_of SESSION p1)"
+release_clone p1 "$b" >/dev/null
+
+# Mirror direction: a live claude process (sweep, no claim) in a clone whose
+# only transcript is a Codex rollout must not show the Codex title either.
+codex_session_for p2 "Old codex work"
+sweep claude "$WS/p2"
+check "claude process over codex history -> in use" "in use" "$(state_of p2)"
+check "AGENT from the process sweep"              "Claude" "$(field_of AGENT p2)"
+check "stale codex title is not shown"            "—"      "$(field_of SESSION p2)"
+sweep
+
+# Rows whose git state was already non-open take a different code path (their
+# worker probed the cross-agent newest session up front): a dirty clone
+# claimed by codex with only Claude history must scope to the occupant too.
+: > "$WS/p3/dirty.txt"
+session_for p3 "Parked claude work"
+claim_clone p3 "$b" codex >/dev/null
+check "dirty + codex claim -> in use"             "in use" "$(state_of p3)"
+check "non-open row also scopes to the occupant"  "—"      "$(field_of SESSION p3)"
+release_clone p3 "$b" >/dev/null
 
 # ---------------------------------------------------------------------------
 echo

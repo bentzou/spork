@@ -55,6 +55,13 @@ check "clone filter includes root + subdir only" "2" "$(codex_clone_session_file
 check "newest session is subdir" "$new" "$(codex_newest_session_file "$WS/p1")"
 check "generic selector reports codex" "codex" "$(spork_newest_session "$WS/p1" | cut -d'|' -f1)"
 
+# A clone Codex occupies but hasn't recorded in yet (rollouts persist on the
+# first message) must yield the empty sentinel, not another clone's session —
+# status relies on this to blank SESSION/AGE for a fresh occupant.
+mkdir -p "$WS/p3"
+check "no transcript yet -> empty sentinel" "|" "$(codex_newest_session "$WS/p3")"
+check "agent dispatcher passes the sentinel through" "|" "$(agent_newest_session codex "$WS/p3")"
+
 echo
 echo "session inventory: indexes once and serves clone readers"
 

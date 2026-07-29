@@ -133,6 +133,14 @@ SPORK_PROC_SWEEP_LOADED=1
 # Overlay occupancy after the process sweep. A live claim/process can turn an
 # otherwise-open git row into in-use; those rare rows need the session probe
 # their worker skipped, so launch just those as a small fallback batch.
+#
+# SESSION/AGE on an occupied row must describe the occupant's own session, not
+# merely the clone's newest transcript: a freshly launched agent may not have
+# written one yet (Codex persists its rollout on the first message), so the
+# cross-agent newest can be a finished session of a *different* agent — pairing
+# that title with the live AGENT would claim the occupant is running it. When
+# the occupant is known and the probed session isn't theirs, re-probe scoped
+# to that agent; no session of theirs yet renders as the "—" placeholders.
 declare -a branch_probes=() state_probes=() agent_probes=() epoch_probes=() session_probes=() live_agent_probes=()
 for i in "${!paths[@]}"; do
     { IFS= read -r branch; IFS= read -r state; IFS= read -r agent; IFS= read -r last_epoch; IFS= read -r session; } < "$tmp/$i"
@@ -154,7 +162,12 @@ for i in "${!paths[@]}"; do
     epoch_probes+=("$last_epoch")
     session_probes+=("$session")
     live_agent_probes+=("$live_agent")
-    if (( was_open )) && [[ "$state" != "open" ]]; then
+    if [[ -n "$live_agent" && "$live_agent" != "$agent" ]]; then
+        # Prefix the agent so the file parses like spork_newest_session's
+        # "<agent>|<epoch>|<title>" (agent_newest_session emits "<epoch>|<title>").
+        { printf '%s|' "$live_agent"; agent_newest_session "$live_agent" "${paths[$i]}"; } \
+            >"$tmp/$i.late-session" &
+    elif (( was_open )) && [[ "$state" != "open" ]]; then
         spork_newest_session "${paths[$i]}" >"$tmp/$i.late-session" &
     fi
 done
