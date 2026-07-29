@@ -1,29 +1,36 @@
 # spork
 
-spork keeps a pool of clones of your repo (`p1`, `p2`, `p3`, …) and
-places you into the next available one.
+spork is a pool manager for coding-agent workspaces. It keeps clones
+of your repo (`p1`, `p2`, `p3`, …) and drops you into the next free
+one.
 
 - `just claude` / `just codex` — grabs a free clone and starts a
   session in it
 - `just status` — shows which session lives where
+- `just sync` — updates every clone in the background
 - `just resume` — picks a past session back up
 
-The clones share one local git mirror, so they're cheap to create and
-one download updates them all.
+The clones share one local git mirror. Cheap to create, one download
+updates them all.
+
+### Start a new session
 
 ```
-$ just status
+$ just sync                  # prints status, syncs in background
 REP  SESSION                      STATE   AGENT
 p1   Fix image cache expiry bug   in use  Claude
 p2   Spike: sqlite cache backend  parked  Codex
 p3                                open
 p4                                open
 
-$ just claude                # starts claude in p3
-$ just claude hello world    # starts claude with that prompt
+$ just claude [my prompt]    # starts claude in p3
 
-$ just codex                 # starts codex
+# just codex                 # or codex
+```
 
+### Return to an existing session
+
+```
 $ just log
 AGE  AGENT   REP  ID        SESSION
 2m   Claude  p1   feb693a8  Fix image cache expiry bug    (in use)
@@ -35,16 +42,14 @@ $ just resume p2             # reopens p2's last session
 Or, with the [shell shortcuts](#shell-shortcuts) installed:
 
 ```
-$ js                         # just status
+$ js                         # just sync - prints status, updates in background
 REP  SESSION                      STATE   AGENT
 p1   Fix image cache expiry bug   in use  Claude
 p2   Spike: sqlite cache backend  parked  Codex
 
-$ jc                         # just claude - starts claude in next open clone
-$ jc hello world             # starts claude with that prompt
+$ jc [my prompt]             # just claude - starts claude in next open clone
 
-$ jx                         # just codex - starts codex in next open clone
-$ jx hello world             # starts codex with that prompt
+# jx [my prompt]             # or codex
 ```
 
 ## Setup
@@ -69,7 +74,7 @@ These have to live in your shell config because they need to `cd` your
 real shell:
 
 ```bash
-js () { cd ~/Code/myrepo && just status; }
+js () { cd ~/Code/myrepo && just sync; }
 jg () { local p; p=$(cd ~/Code/myrepo && just go) || return; cd "$p"; }
 jc () {
    local p
@@ -97,11 +102,14 @@ and hands them to every clone.
 
 ## Why full clones instead of worktrees?
 
-Isolation. Worktrees share branches, config, and hooks, so with several
-agents working at once you get collisions. Each spork clone is a
-complete, ordinary repo — whatever an agent does in one can't affect the
-others. And the shared mirror means this costs no more disk than
-worktrees would.
+The pool layer — claiming, status, sessions, sync — doesn't care what
+a unit is made of. spork uses full clones because the isolation is
+simpler and more complete: worktrees share branches, config, and
+hooks, so several agents working at once collide, while a clone is a
+full, ordinary repo — whatever an agent does in one can't affect the
+others, and deleting the directory removes it entirely. And the
+shared mirror means this costs no more disk than worktrees would.
+A worktree backend may still be added later.
 
 ## Config
 
