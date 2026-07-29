@@ -474,16 +474,27 @@ claude_clone_session_files_raw() {
 }
 
 # Read one agent+clone slice from a command-scoped session inventory. Inventory
-# rows are "<mtime><TAB><agent><TAB><clone-path><TAB><file>"; the public clone
-# readers retain their historical "<mtime> <file>" output so their callers do
-# not need to know whether an inventory is active.
+# rows are "<mtime><TAB><agent><TAB><clone-path><TAB><session-id><TAB><file>";
+# the public clone readers retain their historical "<mtime> <file>" output so
+# their callers do not need to know whether an inventory is active.
 session_inventory_clone_files() {
     local agent="$1" repo_path="${2%/}"
-    local mtime row_agent row_path file
+    local mtime row_agent row_path row_id file
     [[ -f "${SPORK_SESSION_INVENTORY_FILE:-}" ]] || return 0
-    while IFS=$'\t' read -r mtime row_agent row_path file; do
+    while IFS=$'\t' read -r mtime row_agent row_path row_id file; do
         [[ "$row_agent" == "$agent" && "$row_path" == "$repo_path" ]] || continue
         printf '%s %s\n' "$mtime" "$file"
+    done < "$SPORK_SESSION_INVENTORY_FILE"
+}
+
+# Same slice with the session id kept: "<mtime><TAB><id><TAB><file>" rows.
+session_inventory_clone_rows() {
+    local agent="$1" repo_path="${2%/}"
+    local mtime row_agent row_path row_id file
+    [[ -f "${SPORK_SESSION_INVENTORY_FILE:-}" ]] || return 0
+    while IFS=$'\t' read -r mtime row_agent row_path row_id file; do
+        [[ "$row_agent" == "$agent" && "$row_path" == "$repo_path" ]] || continue
+        printf '%s\t%s\t%s\n' "$mtime" "$row_id" "$file"
     done < "$SPORK_SESSION_INVENTORY_FILE"
 }
 
@@ -583,9 +594,12 @@ codex_session_cwd() {
     json_string_field "$line" cwd
 }
 
-codex_session_id() {
-    local file="$1" line id
-    line=$(codex_session_meta_line "$file")
+# The logical session id for a rollout: session_meta's session_id. Forked or
+# resumed rollouts each get their own file (and their own payload "id") but
+# carry the original session_id — the handle `codex resume` accepts — so every
+# rollout of one logical session answers the same id here.
+codex_session_id_from_meta() {
+    local line="$1" file="$2" id
     id=$(json_string_field "$line" session_id)
     [[ -z "$id" ]] && id=$(json_string_field "$line" id)
     if [[ -z "$id" ]]; then
@@ -594,6 +608,11 @@ codex_session_id() {
         id="${id#rollout-????-??-??T??-??-??-}"
     fi
     printf '%s' "$id"
+}
+
+codex_session_id() {
+    local file="$1"
+    codex_session_id_from_meta "$(codex_session_meta_line "$file")" "$file"
 }
 
 codex_session_title() {
@@ -661,7 +680,7 @@ codex_clone_session_files() {
 # Usage: spork_session_inventory_build <output-file> [<clone-path> ...]
 # When paths are omitted, the current workspace's clones are discovered once.
 spork_session_inventory_build() {
-    local output="$1" path file cwd matched i mapping
+    local output="$1" path file line cwd id matched i mapping
     shift
 
     local paths=("$@") codex_files=()
@@ -678,7 +697,9 @@ spork_session_inventory_build() {
         : > "$mapping"
         while IFS= read -r file; do
             [[ -f "$file" ]] || continue
-            cwd=$(codex_session_cwd "$file")
+            # One metadata read serves both the cwd match and the session id.
+            line=$(codex_session_meta_line "$file")
+            cwd=$(json_string_field "$line" cwd)
             [[ -n "$cwd" ]] || continue
             matched=""
             for path in "${paths[@]}"; do
@@ -688,8 +709,9 @@ spork_session_inventory_build() {
                 fi
             done
             [[ -n "$matched" ]] || continue
+            id=$(codex_session_id_from_meta "$line" "$file")
             codex_files+=("$file")
-            printf '%s\t%s\n' "$matched" "$file" >> "$mapping"
+            printf '%s\t%s\t%s\n' "$matched" "$id" "$file" >> "$mapping"
         done < <(find "$CODEX_SESSIONS_DIR" -type f -name '*.jsonl' 2>/dev/null)
 
         if (( ${#codex_files[@]} > 0 )); then
@@ -698,17 +720,24 @@ spork_session_inventory_build() {
             # using stat's returned path avoids shifting every later array
             # index onto the wrong clone in that race.
             awk -F '\t' '
-                FNR == NR { repo[$2] = $1; next }
+                FNR == NR { repo[$3] = $1; sid[$3] = $2; next }
                 {
                     mtime = $0; sub(/ .*/, "", mtime)
                     file = $0; sub(/^[^ ]+ /, "", file)
                     if (file in repo)
-                        printf "%s\tcodex\t%s\t%s\n", mtime, repo[file], file
+                        printf "%s\tcodex\t%s\t%s\t%s\n", mtime, repo[file], sid[file], file
                 }
             ' "$mapping" <(stat -f '%m %N' "${codex_files[@]}" 2>/dev/null) >> "$output"
         fi
         rm -f "$mapping"
     fi
+}
+
+# Epoch of the last timestamped record, or empty — the Codex twin of
+# claude_session_last_ts, and the same cure for the same lie: mtime clusters
+# on system wakes, record timestamps mark real interaction.
+codex_session_last_ts() {
+    codex_iso_epoch "$(codex_session_scan "$1")"
 }
 
 codex_newest_session_file() {
@@ -742,6 +771,39 @@ agent_clone_session_files() {
     esac
 }
 
+# Session files for a clone with their ids attached, as
+# "<mtime><TAB><id><TAB><file>" rows. Claude ids are the file name, so they
+# cost nothing; Codex ids ride along in the inventory (built from the same
+# metadata read as the cwd), falling back to a per-file read without one.
+# This is what lets callers group forked Codex rollouts — many files, one
+# logical session — without reopening every transcript.
+agent_clone_session_rows() {
+    local agent="$1" path="$2" line mtime file id
+    case "$agent" in
+        claude)
+            while IFS= read -r line; do
+                [[ -n "$line" ]] || continue
+                mtime="${line%% *}"
+                file="${line#* }"
+                id="${file##*/}"
+                printf '%s\t%s\t%s\n' "$mtime" "${id%.jsonl}" "$file"
+            done < <(claude_clone_session_files "$path")
+            ;;
+        codex)
+            if [[ -f "${SPORK_SESSION_INVENTORY_FILE:-}" ]]; then
+                session_inventory_clone_rows codex "$path"
+            else
+                while IFS= read -r line; do
+                    [[ -n "$line" ]] || continue
+                    mtime="${line%% *}"
+                    file="${line#* }"
+                    printf '%s\t%s\t%s\n' "$mtime" "$(codex_session_id "$file")" "$file"
+                done < <(codex_clone_session_files_raw "$path")
+            fi
+            ;;
+    esac
+}
+
 agent_session_title() {
     local agent="$1" file="$2"
     case "$agent" in
@@ -771,6 +833,14 @@ agent_session_cwd() {
     case "$agent" in
         claude) claude_session_cwd "$file" ;;
         codex)  codex_session_cwd "$file" ;;
+    esac
+}
+
+agent_session_last_ts() {
+    local agent="$1" file="$2"
+    case "$agent" in
+        claude) claude_session_last_ts "$file" ;;
+        codex)  codex_session_last_ts "$file" ;;
     esac
 }
 

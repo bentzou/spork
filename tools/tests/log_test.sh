@@ -81,18 +81,17 @@ session_for() {
 # "REP|SESSION" for body row N (1-based, header skipped), or empty. AGE, AGENT,
 # REP and ID are single tokens; SESSION is the free-text remainder. Non-tty
 # capture carries no color escapes, so plain field splitting is safe.
-row() {
-    local n="$1"
-    log all | awk -v n="$n" '
+row() { row_of "$1" all; }
+row_of() {
+    local n="$1"; shift
+    log "$@" | awk -v n="$n" '
         function trim(s){ gsub(/^ +| +$/, "", s); return s }
         NR==1 { next }
         (NR-1)==n { rep=$3; $1=""; $2=""; $3=""; $4=""; print rep "|" trim($0); exit }'
 }
-# ID cell (4th column) of body row N, or empty.
-id_of() {
-    local n="$1"
-    log all | awk -v n="$n" 'NR==1{next} (NR-1)==n{print $4; exit}'
-}
+# ID (4th column) and AGE (1st column) of body row N, or empty.
+id_of()  { log all | awk -v n="$1" 'NR==1{next} (NR-1)==n{print $4; exit}'; }
+age_of() { log all | awk -v n="$1" 'NR==1{next} (NR-1)==n{print $1; exit}'; }
 # Count of body rows (header excluded).
 row_count() { local c; c=$(log all | wc -l); echo $(( c - 1 )); }
 # Claim clone <name> for owner <pid> via the sourced helper (occupies it).
@@ -130,7 +129,7 @@ echo
 echo "log: N limits to the most recent, 'all' shows everything, default is 20"
 
 check "N=2 keeps the two newest"    "2"            "$(log 2 | awk 'NR>1' | wc -l | tr -d ' ')"
-check "N=2 top row is the newest"   "p2|p2 only"   "$(log 2 | awk 'NR==2{rep=$3;$1="";$2="";$3="";$4="";gsub(/^ +/,"",$0);print rep "|" $0}')"
+check "N=2 top row is the newest"   "p2|p2 only"   "$(row_of 1 2)"
 check "'all' shows every session"   "5"            "$(row_count)"
 check "bad N -> usage error (exit 2)" "2"          "$(log nope >/dev/null 2>&1; echo $?)"
 
@@ -174,6 +173,71 @@ check "all rows of in-use clone marked" "2"  "$(inuse_rows p2)"
 # Releasing the claim clears the marker — occupancy is live, not sticky.
 ( cd "$WS" && . ./.spork/tools/_lib.sh && release_claim p2 "$live" )
 check "released clone no longer marked" "0"  "$(inuse_rows p2)"
+
+# ---------------------------------------------------------------------------
+echo
+echo "log: forked Codex rollouts collapse to one row per logical session"
+
+make_workspace 2
+
+# One Codex rollout file: <file-uuid> <session-id> <cwd> <title> <iso> <stamp>.
+# Forks of one logical session share <session-id> across distinct file uuids.
+# The record timestamp (<iso>) drives AGE; <stamp> only sets mtime.
+codex_rollout_for() {
+    local file_uuid="$1" sid="$2" cwd="$3" title="$4" iso="$5" stamp="$6" dir file
+    dir="$CODEX_SESSIONS_DIR/2026/07/20"
+    mkdir -p "$dir"
+    file="$dir/rollout-2026-07-20T00-00-00-$file_uuid.jsonl"
+    {
+        printf '{"timestamp":"%s","type":"session_meta","payload":{"session_id":"%s","cwd":"%s"}}\n' "$iso" "$sid" "$cwd"
+        printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"user_message","message":"%s"}}\n' "$iso" "$title"
+    } > "$file"
+    touch -t "$stamp" "$file"
+}
+
+sid="ffff0000-aaaa-bbbb-cccc-000000000001"
+codex_rollout_for "aaaa0000-0000-0000-0000-000000000001" "$sid" "$WS/p1" "original run" "2026-07-20T01:00:00.000Z" 202607200100
+codex_rollout_for "bbbb0000-0000-0000-0000-000000000002" "$sid" "$WS/p1" "second fork"  "2026-07-20T02:00:00.000Z" 202607200200
+codex_rollout_for "cccc0000-0000-0000-0000-000000000003" "$sid" "$WS/p1" "latest fork"  "2026-07-20T03:00:00.000Z" 202607200300
+session_for p2 "" "claude too" 202601020000 dddd0000
+
+check "three rollouts, one codex row"  "2"              "$(row_count)"
+check "row carries the newest rollout" "p1|latest fork" "$(row 1)"
+check "ID is the shared session id"    "ffff0000"       "$(id_of 1)"
+
+# A distinct Codex session id keeps its own row.
+codex_rollout_for "eeee0000-0000-0000-0000-000000000004" "99990000-aaaa-bbbb-cccc-000000000009" "$WS/p1" "other session" "2026-07-20T00:30:00.000Z" 202607200030
+check "distinct session ids keep rows" "3"              "$(row_count)"
+
+# ---------------------------------------------------------------------------
+echo
+echo "log: AGE follows record timestamps, not the wake-bumped file mtime"
+
+make_workspace 2
+
+# An idle session's jsonl rewritten on a recent system wake: mtime fresh, but
+# the last record months old. A claude session whose records carry no
+# timestamps (like the other fixtures here) keeps its mtime.
+session_with_ts() {
+    local name="$1" title="$2" iso="$3" stamp="$4" id="$5" dir
+    dir="$CLAUDE_PROJECTS_DIR/${WS//\//-}-$name"
+    mkdir -p "$dir"
+    printf '{"type":"ai-title","aiTitle":"%s","sessionId":"%s","timestamp":"%s"}\n' \
+        "$title" "$id" "$iso" > "$dir/$id.jsonl"
+    touch -t "$stamp" "$dir/$id.jsonl"
+}
+session_with_ts p1 "wake-bumped idle work" "2026-01-01T00:00:00.000Z" 202607280000 stale1
+session_for     p2 "" "recent real work" 202606010000 fresh1
+
+check "true recency outranks fresh mtime"   "p2|recent real work"     "$(row 1)"
+check "idle session sinks to its record ts" "p1|wake-bumped idle work" "$(row 2)"
+# The N-truncation must rank by record ts too — a wake-bumped idle session
+# must not crowd genuinely recent work out of the window.
+check "N-truncation ranks by record ts"     "p2|recent real work"     "$(row_of 1 1)"
+case "$(age_of 2)" in
+    *d) ok "wake-bumped AGE reads in days, not minutes" ;;
+    *)  bad "wake-bumped AGE reads in days, not minutes (got [$(age_of 2)])" ;;
+esac
 
 # ---------------------------------------------------------------------------
 echo
