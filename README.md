@@ -39,7 +39,7 @@ AGE  AGENT   REP  ID        SESSION
 $ just resume p2             # reopens p2's last session
 ```
 
-Or, with the [shell shortcuts](#shell-shortcuts) installed:
+### Or, with the [shell shortcuts](#shell-shortcuts) installed
 
 ```
 $ js                         # just sync - prints status, updates in background
