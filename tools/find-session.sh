@@ -65,19 +65,33 @@ if [[ -d "$BASE_DIR/$query" && "$(clone_origin_url "$BASE_DIR/$query")" == "$ORI
 else
     # Collect every session whose id starts with the query, as
     # "agent\tid\tclone\tfile" lines. Exact full-id matches win below.
-    while IFS= read -r path; do
-        name=$(basename "${path%/}")
-        while IFS= read -r agent; do
-            while IFS= read -r line; do
-                [[ -n "$line" ]] || continue
-                file="${line#* }"
-                id=$(agent_session_id "$agent" "$file")
-                case "$id" in
-                    "$query"*) matches+=("$agent"$'\t'"$id"$'\t'"$name"$'\t'"$file") ;;
-                esac
-            done < <(agent_clone_session_files "$agent" "$path")
-        done < <(match_agents)
-    done < <(spork_clones)
+    # One row per logical session: forked Codex rollouts all carry the
+    # original session id, so they'd otherwise turn one resumable session
+    # into a spurious "matches N sessions" ambiguity. Newest-mtime file wins
+    # — the freshest transcript for the id.
+    candidates=$(
+        while IFS= read -r path; do
+            name=$(basename "${path%/}")
+            while IFS= read -r agent; do
+                while IFS=$'\t' read -r mtime id file; do
+                    [[ -n "$mtime" ]] || continue
+                    # (pattern) form: a bare `pattern)` inside $( ) trips
+                    # macOS bash 3.2's parser.
+                    case "$id" in
+                        ("$query"*) printf '%s\t%s\t%s\t%s\t%s\n' "$mtime" "$agent" "$id" "$name" "$file" ;;
+                    esac
+                done < <(agent_clone_session_rows "$agent" "$path")
+            done < <(match_agents)
+        done < <(spork_clones)
+    )
+    seen=$'\n'
+    while IFS=$'\t' read -r mtime agent id name file; do
+        [[ -n "$mtime" ]] || continue
+        key="$agent/$id"
+        [[ "$seen" == *$'\n'"$key"$'\n'* ]] && continue
+        seen+="$key"$'\n'
+        matches+=("$agent"$'\t'"$id"$'\t'"$name"$'\t'"$file")
+    done < <(printf '%s\n' "$candidates" | sort -rn)
 fi
 
 if (( ${#matches[@]} == 0 )); then

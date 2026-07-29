@@ -174,6 +174,22 @@ want="codex	p1	$WS/p1/src/app	cccc0000-0000-0000-0000-000000000001"
 check "codex id resolves with agent" "$want" "$(find_session --agent codex cccc)"
 check "codex clone name resolves"    "$want" "$(find_session --agent codex p1)"
 
+# Forked rollouts: Codex writes a new file per resume/fork, every one carrying
+# the original session_id. A prefix of that id must resolve as ONE session
+# (the newest transcript) — not a spurious "matches N sessions" ambiguity.
+sid="dddd0000-0000-0000-0000-000000000004"
+fork_dir="$CODEX_SESSIONS_DIR/2026/07/21"
+mkdir -p "$fork_dir"
+printf '{"timestamp":"2026-07-21T00:00:00.000Z","type":"session_meta","payload":{"session_id":"%s","id":"%s","cwd":"%s"}}\n' \
+    "$sid" "$sid" "$WS/p1" > "$fork_dir/rollout-2026-07-21T00-00-00-$sid.jsonl"
+printf '{"timestamp":"2026-07-21T01:00:00.000Z","type":"session_meta","payload":{"session_id":"%s","id":"eeee0000-0000-0000-0000-000000000005","forked_from_id":"%s","cwd":"%s"}}\n' \
+    "$sid" "$sid" "$WS/p1" > "$fork_dir/rollout-2026-07-21T01-00-00-eeee0000-0000-0000-0000-000000000005.jsonl"
+touch -t 202607210000 "$fork_dir/rollout-2026-07-21T00-00-00-$sid.jsonl"
+touch -t 202607210100 "$fork_dir/rollout-2026-07-21T01-00-00-eeee0000-0000-0000-0000-000000000005.jsonl"
+
+check "fork prefix is not ambiguous"          "0"    "$(find_session dddd >/dev/null 2>&1; echo $?)"
+check "forked rollouts resolve as one session" "$sid" "$(find_session dddd | cut -f4)"
+
 # ---------------------------------------------------------------------------
 echo
 echo "claim-one: claims a named clone in any git state; honors live ownership"
