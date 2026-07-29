@@ -75,7 +75,6 @@ real shell:
 
 ```bash
 js () { cd ~/Code/myrepo && just sync; }
-jg () { local p; p=$(cd ~/Code/myrepo && just go) || return; cd "$p"; }
 jc () {
    local p
    p=$(cd ~/Code/myrepo && ./.spork/tools/claim.sh "$$") || return
