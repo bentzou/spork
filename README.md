@@ -120,9 +120,22 @@ A worktree backend may still be added later.
 
 ## Config
 
-`init` fills in `.spork.local/config` for you. The one setting worth
-adding by hand is `POST_CLONE` — a command run inside each new clone,
-e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
+`init` fills in `.spork.local/config` for you. Two settings are worth
+adding by hand; the file's comments explain the rest.
+
+`POST_CLONE` is a bash command that runs inside every new clone, right
+after the trunk checkout. Git only delivers tracked files, so this is
+where a clone becomes runnable — install dependencies, generate local
+config, set up the database. It also reruns when `just clean --full`
+wipes a clone's ignored files. Chain steps with `&&`:
+
+```bash
+POST_CLONE='bun install && bun run db:setup'
+```
+
+`CLONE_SUBDIR` points sessions at a monorepo subdir, e.g.
+`CLONE_SUBDIR=src/my-app` — `just claude`/`codex` start there and
+`just next` prints it, while the pool still manages whole clones.
 
 ## Commands
 
