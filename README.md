@@ -78,10 +78,8 @@ workspace directory — delete the directory to undo setup entirely.
 
 ### Shell shortcuts
 
-Add these to your shell config. They're functions rather than `just`
-recipes because a recipe runs as a child process, which can't change
-your shell's directory — and `jc`/`jx` need to leave you sitting in
-the clone:
+Add these to your shell config to jump into a free clone from
+anywhere:
 
 ```bash
 js () { cd ~/Code/myrepo && just sync; }
