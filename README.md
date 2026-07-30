@@ -123,20 +123,11 @@ A worktree backend may still be added later.
 `init` fills in `.spork.local/config` for you. The one setting worth
 adding by hand is `POST_CLONE`; the file's comments explain the rest.
 
-`POST_CLONE` is a bash command that runs inside every new clone, right
-after the trunk checkout. Git only delivers tracked files, so this is
-where a clone becomes runnable — install dependencies, generate local
-config, set up the database. It also reruns when `just clean --full`
-wipes a clone's ignored files. Chain steps with `&&`:
-
-```bash
-POST_CLONE='bun install && bun run db:setup'
-```
-
-`CLONE_PREFIX` names the clones: the default `p` gives `p1`, `p2`,
-`p3`, … and `just clone` always picks the highest existing number
-plus one. Change it before your first clone if you want something
-else — `CLONE_PREFIX=clone-` gives `clone-1`, `clone-2`, ….
+| Setting | What it does |
+| --- | --- |
+| `TRUNK_BRANCH` | The branch the pool revolves around: new clones check it out, `just sync`/`just pull` fast-forward it, and a clone on any other branch counts as `parked`. `init` detects the remote's default (`main`, `master`, …) — set it by hand when your team works off something else, e.g. `TRUNK_BRANCH=dev`. |
+| `CLONE_PREFIX` | Names the clones: the default `p` gives `p1`, `p2`, `p3`, … and `just clone` picks the highest existing number plus one. `CLONE_PREFIX=clone-` gives `clone-1`, `clone-2`, …. |
+| `POST_CLONE` | Bash command run inside every new clone after the trunk checkout, and again when `just clean --full` wipes ignored files. Git only delivers tracked files, so this is where a clone becomes runnable — e.g. `POST_CLONE='bun install && bun run db:setup'`. |
 
 ## Commands
 
