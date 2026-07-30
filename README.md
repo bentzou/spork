@@ -121,8 +121,8 @@ A worktree backend may still be added later.
 
 ## Config
 
-`init` fills in `.spork.local/config` for you. The one setting worth
-adding by hand is `POST_CLONE`; the file's comments explain the rest.
+`init` fills in `.spork.local/config` for you. Usually the only
+setting to add yourself is `POST_CLONE`.
 
 | Setting | What it does |
 | --- | --- |
