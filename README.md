@@ -28,7 +28,7 @@ $ just claude [my prompt]    # starts claude in p3
 # just codex                 # or codex
 ```
 
-### Return to an existing session
+### Return to a previous session
 
 ```console
 $ just log
