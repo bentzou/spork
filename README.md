@@ -15,7 +15,7 @@ updates them all.
 
 ### Start a new session
 
-```
+```console
 $ just sync                  # prints status, syncs in background
 REP  SESSION                      STATE   AGENT
 p1   Fix image cache expiry bug   in use  Claude
@@ -30,7 +30,7 @@ $ just claude [my prompt]    # starts claude in p3
 
 ### Return to an existing session
 
-```
+```console
 $ just log
 AGE  AGENT   REP  ID        SESSION
 2m   Claude  p1   feb693a8  Fix image cache expiry bug    (in use)
@@ -41,7 +41,7 @@ $ just resume p2             # reopens p2's last session
 
 ### Or, with the [shell shortcuts](#shell-shortcuts) installed
 
-```
+```console
 $ js                         # just sync - prints status, updates in background
 REP  SESSION                      STATE   AGENT
 p1   Fix image cache expiry bug   in use  Claude
@@ -56,7 +56,7 @@ $ jc [my prompt]             # just claude - starts claude in next open clone
 
 ### New workspace
 
-```sh
+```bash
 git clone git@github.com:bentzou/spork.git ~/Code/spork    # once, anywhere
 
 mkdir -p ~/Code/myrepo && cd ~/Code/myrepo    # will hold all the clones
