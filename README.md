@@ -56,13 +56,21 @@ $ jc [my prompt]             # just claude - starts claude in next open clone
 
 ### New workspace
 
-```bash
-git clone git@github.com:bentzou/spork.git ~/Code/spork    # once, anywhere
+```console
+$ git clone git@github.com:bentzou/spork.git ~/Code/spork    # once, anywhere
 
-mkdir -p ~/Code/myrepo && cd ~/Code/myrepo    # will hold all the clones
-ln -s ~/Code/spork .spork                     # wires spork into the workspace
-./.spork/init git@github.com:me/myrepo.git    # config + mirror + first clone
-just clone                                    # repeat to grow the pool
+$ mkdir -p ~/Code/myrepo && cd ~/Code/myrepo    # will hold all the clones
+$ ln -s ~/Code/spork .spork                     # wires spork into the workspace
+
+$ ./.spork/init git@github.com:me/myrepo.git
+Initialized spork workspace
+  Cloning mirror from origin (one-time, full history) ..... done
+  Cloned p1 → main @ 9da80fe
+
+Workspace ready. Try `just status`, then `just claude` to grab p1.
+
+$ just clone                                    # repeat to grow the pool
+Cloned p2 → main @ 9da80fe
 ```
 
 `init` is safe to re-run, and everything spork creates lives inside the
