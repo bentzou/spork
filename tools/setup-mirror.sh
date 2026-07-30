@@ -24,19 +24,19 @@ if [[ ! -d "$MIRROR_DIR" ]]; then
     done < <(spork_clones)
 
     if [[ -n "$seed" ]]; then
-        echo "Seeding bare mirror at $MIRROR_DIR from $(basename "$seed") (no network) ..."
+        echo "Seeding mirror from $(basename "$seed") (no network) ..."
         git clone --mirror "$seed/.git" "$MIRROR_DIR"
         git -C "$MIRROR_DIR" remote set-url origin "$ORIGIN_URL"
-        echo "Fetching latest refs from $ORIGIN_URL ..."
+        echo "Fetching latest refs from origin ..."
         git -C "$MIRROR_DIR" fetch --prune
     else
-        echo "No existing local clone found. Cloning mirror from $ORIGIN_URL ..."
+        # git's own progress passes through untouched: the download is the one
+        # real network wait here, and silence on a big repo reads as hung.
+        echo "Cloning mirror from origin (one-time, full history) ..."
         git clone --mirror "$ORIGIN_URL" "$MIRROR_DIR"
     fi
-    echo
 else
-    echo "Mirror already exists at $MIRROR_DIR (skipping clone)."
-    echo
+    echo "Mirror already exists (skipping clone)."
 fi
 
 MIRROR_OBJECTS="$MIRROR_DIR/objects"
@@ -44,8 +44,10 @@ MIRROR_OBJECTS="$MIRROR_DIR/objects"
 paths=()
 while IFS= read -r line; do paths+=("$line"); done < <(spork_clones)
 
+# Nothing to link yet is a normal state, not a warning: during init the first
+# clone is created right after this, and standalone the next step is
+# `just clone` either way. Say nothing rather than sound like a failure.
 if (( ${#paths[@]} == 0 )); then
-    echo "No clones of $ORIGIN_URL found under $BASE_DIR." >&2
     exit 0
 fi
 

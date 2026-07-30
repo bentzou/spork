@@ -56,6 +56,8 @@ check "config is the example placeholder" 0 $?
 check "justfile scaffolded" 0 "$(exists "$ws/justfile")"
 check "no mirror created" 1 "$(exists "$ws/.spork.local/runtime/mirror.git")"
 check "no clone created" 1 "$(exists "$ws/p1")"
+check "ledger uses workspace-relative paths" "1" "$(grep -Fc "  created .spork.local/config" <<<"$out")"
+check "no ensured-runtime noise" "0" "$(grep -c "ensured" <<<"$out")"
 
 # ---------------------------------------------------------------------------
 echo
@@ -76,6 +78,20 @@ check "clone has the seeded history" "init" \
 check "clone origin points at the real remote" "$ORIGIN" \
     "$(git -C "$ws/p1" config --get remote.origin.url 2>/dev/null)"
 
+# Output contract: a created/exists ledger, one mirror narration line, the
+# clone summary, and a footer naming the clone — no step noise, no scare lines.
+check "ledger: config line with origin and trunk" "1" \
+    "$(grep -Fc "  created .spork.local/config  (origin $ORIGIN, trunk trunk)" <<<"$out")"
+check "ledger: justfile line" "1" "$(grep -Fc "  created justfile" <<<"$out")"
+check "no ensured-runtime noise" "0" "$(grep -c "ensured" <<<"$out")"
+check "mirror narration is the single origin mention" "1" \
+    "$(grep -Fc "Cloning mirror from origin (one-time, full history) ..." <<<"$out")"
+check "old clone narration gone" "0" "$(grep -c "No existing local clone found" <<<"$out")"
+check "no 'No clones found' scare line" "0" "$(grep -c "No clones of" <<<"$out")"
+check "clone summary line present" "1" "$(grep -Ec "^Cloned p1 → trunk @ [0-9a-f]+" <<<"$out")"
+check "footer names the fresh clone" "1" \
+    "$(grep -Fc "Workspace ready. Try \`just status\`, then \`just claude\` to grab p1." <<<"$out")"
+
 # ---------------------------------------------------------------------------
 echo
 echo "init <url>: idempotent re-run"
@@ -84,6 +100,12 @@ check "re-run exits 0" 0 "$rc"
 check "no second clone" 1 "$(exists "$ws/p2")"
 grep -Fxq "ORIGIN_URL=$ORIGIN" "$ws/.spork.local/config"
 check "config untouched" 0 $?
+check "re-run ledger: config exists" "1" "$(grep -Fc "  exists  .spork.local/config" <<<"$out")"
+check "re-run ledger: justfile exists" "1" "$(grep -Fc "  exists  justfile" <<<"$out")"
+check "re-run: mirror skip drops the long path" "1" \
+    "$(grep -Fc "Mirror already exists (skipping clone)." <<<"$out")"
+check "re-run footer stays generic" "1" \
+    "$(grep -Fc "Workspace ready. Try \`just status\`, then \`just claude\`." <<<"$out")"
 
 # ---------------------------------------------------------------------------
 echo

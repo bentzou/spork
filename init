@@ -35,8 +35,9 @@ workspace=$(cd "$spork_dir/.." && pwd)
 local_dir="$workspace/.spork.local"
 config="$local_dir/config"
 
+# The ledger below names each artifact workspace-relative — one line per
+# created/exists verdict; internal plumbing (runtime/) doesn't earn a line.
 mkdir -p "$local_dir/runtime"
-echo "  ensured $local_dir/runtime/"
 
 if [[ -n "$origin_url" ]]; then
     # A config someone already filled in wins; only absence or the untouched
@@ -52,7 +53,7 @@ if [[ -n "$origin_url" ]]; then
             echo "       (asked to init with $origin_url)" >&2
             exit 1
         fi
-        echo "  exists  $config"
+        echo "  exists  .spork.local/config"
     else
         # Ask the remote for its default branch before writing anything, so a
         # bad URL or auth failure leaves no half-configured workspace behind.
@@ -69,24 +70,24 @@ if [[ -n "$origin_url" ]]; then
         sed -e "s|^ORIGIN_URL=.*|ORIGIN_URL=$origin_url|" \
             -e "s|^TRUNK_BRANCH=.*|TRUNK_BRANCH=$trunk|" \
             "$spork_dir/examples/config.example" > "$config"
-        echo "  created $config (ORIGIN_URL=$origin_url, TRUNK_BRANCH=$trunk)"
+        echo "  created .spork.local/config  (origin $origin_url, trunk $trunk)"
     fi
 elif [[ -f "$config" ]]; then
-    echo "  exists  $config"
+    echo "  exists  .spork.local/config"
 else
     cp "$spork_dir/examples/config.example" "$config"
-    echo "  created $config"
+    echo "  created .spork.local/config"
 fi
 
 if [[ -f "$workspace/justfile" ]]; then
-    echo "  exists  $workspace/justfile"
+    echo "  exists  justfile"
     if ! grep -q "import '.spork/spork.just'" "$workspace/justfile" 2>/dev/null; then
         echo "          (add \`import '.spork/spork.just'\` to pull in spork's"
         echo "           recipes — see .spork/examples/justfile.example)"
     fi
 else
     cp "$spork_dir/examples/justfile.example" "$workspace/justfile"
-    echo "  created $workspace/justfile"
+    echo "  created justfile"
 fi
 
 if [[ -z "$origin_url" ]]; then
@@ -109,16 +110,18 @@ echo
 # First clone, unless the workspace already has one (adopted or from a
 # previous run). spork_clones needs the config we just ensured above.
 clones=$( ( cd "$workspace" && . .spork/tools/_lib.sh && spork_clones ) 2>/dev/null || true )
+grab=""
 if [[ -n "$clones" ]]; then
     echo "  exists  clones (skipping first clone)"
 else
     "$spork_dir/tools/clone.sh"
+    # Name the fresh clone in the footer: highest-numbered = the one just made.
+    grab=$(basename "$( ( cd "$workspace" && . .spork/tools/_lib.sh && spork_clones ) 2>/dev/null | tail -1 )")
 fi
 
-cat <<EOF
-
-Workspace ready. Try:
-  cd $workspace
-  just status
-  just claude
-EOF
+echo
+if [[ -n "$grab" ]]; then
+    echo "Workspace ready. Try \`just status\`, then \`just claude\` to grab $grab."
+else
+    echo "Workspace ready. Try \`just status\`, then \`just claude\`."
+fi
