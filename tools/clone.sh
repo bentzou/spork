@@ -37,7 +37,8 @@ if [[ -e "$target" ]]; then
     exit 1
 fi
 
-echo "Creating clone $CLONE_PREFIX$next at $target ..."
+# Silent until the summary — the whole operation is local and fast, so step
+# narration is noise; failures still speak through their own messages.
 git init -q "$target"
 
 mkdir -p "$target/.git/objects/info"
@@ -47,7 +48,6 @@ git -C "$target" remote add origin "$ORIGIN_URL"
 git -C "$target" remote add mirror "$MIRROR_DIR"
 git -C "$target" config --replace-all remote.mirror.fetch '+refs/heads/*:refs/remotes/origin/*'
 
-echo "Populating refs from mirror (no network) ..."
 git -C "$target" fetch -q mirror
 
 if ! git -C "$target" rev-parse --verify -q "refs/remotes/origin/$TRUNK_BRANCH" >/dev/null; then
@@ -55,7 +55,6 @@ if ! git -C "$target" rev-parse --verify -q "refs/remotes/origin/$TRUNK_BRANCH" 
     exit 1
 fi
 
-echo "Checking out $TRUNK_BRANCH ..."
 # --no-track + explicit branch config: both `origin` and `mirror` write to
 # refs/remotes/origin/*, so git's auto-tracking errors with "ambiguous
 # information for ref". We pin tracking to origin ourselves.
@@ -73,4 +72,14 @@ if [[ -n "${POST_CLONE:-}" ]]; then
     ( cd "$target" && eval "$POST_CLONE" )
 fi
 
-echo "Done: $target"
+# One dense done-line, clean.sh style. The parenthetical answers the question
+# a mirror-local clone raises — how fresh is it? — from the sync-time record
+# the status footer also reads; absent (never synced), it's simply omitted.
+synced=""
+if [[ -f "$RUNTIME_DIR/last-sync" ]]; then
+    read -r epoch _ < "$RUNTIME_DIR/last-sync"
+    if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+        synced=" (synced $(format_relative $(( $(date +%s) - epoch ))) ago)"
+    fi
+fi
+echo "Cloned $CLONE_PREFIX$next → $TRUNK_BRANCH @ $(git -C "$target" rev-parse --short HEAD)$synced"
