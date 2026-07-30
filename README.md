@@ -143,16 +143,12 @@ e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
 | `just pull` | Update every clean clone. |
 | `just clean <name>` | Reset a clone back to `open`. |
 | `just status` | Show each clone's state. |
+| `just sync` | Update everything in the background. |
 
 ### plumbing — everything else
 
 | Command | What it does |
 | --- | --- |
 | `just resume <id\|name>` | Reopen a past session. |
-| `just resume-claude <id\|name>` | Reopen a past Claude session. |
-| `just resume-codex <id\|name>` | Reopen a past Codex session. |
-| `just log-claude [N]` | List recent Claude sessions. |
-| `just log-codex [N]` | List recent Codex sessions. |
-| `just sync` | Update everything in the background. |
 | `just fetch` | Fetch every clone. |
 | `just sync-setup` | One-time: create the shared mirror. |

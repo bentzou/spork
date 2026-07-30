@@ -86,7 +86,9 @@ resume id:
      esac
 
 # Resume a Claude session by `just log-claude` ID — or by clone name.
-[group('use')]
+# Private: `resume` resolves the agent itself; this variant exists to
+# disambiguate a short id that matches sessions from both agents.
+[private]
 resume-claude id:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
      found=$(./.spork/tools/find-session.sh --agent claude "{{id}}") || exit 1; \
@@ -97,7 +99,9 @@ resume-claude id:
      cd "$cwd" && claude --resume "$sid"
 
 # Resume a Codex session by `just log-codex` ID — or by clone name.
-[group('use')]
+# Private: `resume` resolves the agent itself; this variant exists to
+# disambiguate a short id that matches sessions from both agents.
+[private]
 resume-codex id:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
      found=$(./.spork/tools/find-session.sh --agent codex "{{id}}") || exit 1; \
@@ -119,12 +123,14 @@ log *n:
     @./.spork/tools/log-all.sh "{{n}}"
 
 # Recent Claude sessions across the pool, newest first (no network).
-[group('manage')]
+# Private: `log` covers both agents (AGENT column); agent-scoped filter only.
+[private]
 log-claude *n:
     @./.spork/tools/log-all.sh --agent claude "{{n}}"
 
 # Recent Codex sessions across the pool, newest first (no network).
-[group('manage')]
+# Private: `log` covers both agents (AGENT column); agent-scoped filter only.
+[private]
 log-codex *n:
     @./.spork/tools/log-all.sh --agent codex "{{n}}"
 
@@ -158,7 +164,7 @@ sync-setup:
     @./.spork/tools/setup-mirror.sh
 
 # Status table, then background fetch/pull via the shared mirror.
-[private]
+[group('manage')]
 sync:
     @./.spork/tools/status-all.sh
     @( ./.spork/tools/sync-bg.sh </dev/null >/dev/null 2>&1 & ) </dev/null
