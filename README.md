@@ -126,29 +126,26 @@ e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
 
 ## Commands
 
-### use — grab a clone and work in it
+### use — day-to-day work
 
 | Command | What it does |
 | --- | --- |
 | `just claude "hello world"` | Start a session in a free clone, with an optional prompt. |
 | `just codex "hello world"` | Start a session in a free clone, with an optional prompt. |
-| `just go` | Print the path of a free clone. |
+| `just status` | Show each clone's state. |
+| `just sync` | Update everything in the background. |
 
 ### manage — take care of the pool
 
 | Command | What it does |
 | --- | --- |
-| `just clone` | Add a clone to the pool. |
-| `just log [N]` | List recent sessions. |
-| `just pull` | Update every clean clone. |
 | `just clean <name>` | Reset a clone back to `open`. |
-| `just status` | Show each clone's state. |
-| `just sync` | Update everything in the background. |
+| `just clone` | Add a clone to the pool. |
+| `just pull` | Update every clean clone. |
 
-### plumbing — everything else
+### advanced — session history
 
 | Command | What it does |
 | --- | --- |
+| `just log [N]` | List recent sessions. |
 | `just resume <id\|name>` | Reopen a past session. |
-| `just fetch` | Fetch every clone. |
-| `just sync-setup` | One-time: create the shared mirror. |
