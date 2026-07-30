@@ -69,8 +69,9 @@ Initialized spork workspace
 
 Workspace ready. Try `just status`, then `just claude` to grab p1.
 
-$ just clone                                    # repeat to grow the pool
+$ just clone 2                                  # grow the pool
 Cloned p2 → main @ 9da80fe
+Cloned p3 → main @ 9da80fe
 ```
 
 `init` is safe to re-run, and everything spork creates lives inside the
