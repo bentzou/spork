@@ -133,6 +133,11 @@ wipes a clone's ignored files. Chain steps with `&&`:
 POST_CLONE='bun install && bun run db:setup'
 ```
 
+`CLONE_PREFIX` names the clones: the default `p` gives `p1`, `p2`,
+`p3`, … and `just clone` always picks the highest existing number
+plus one. Change it before your first clone if you want something
+else — `CLONE_PREFIX=clone-` gives `clone-1`, `clone-2`, ….
+
 ## Commands
 
 ### use — day-to-day work
