@@ -97,10 +97,10 @@ sync-setup:
 clean name *flags:
     @./.spork/tools/clean.sh "{{name}}" {{flags}}
 
-# Create the next clone using the local mirror (no network).
+# Create the next N clones using the local mirror (no network; default 1).
 [group('manage')]
-clone:
-    @./.spork/tools/clone.sh
+clone *n:
+    @./.spork/tools/clone.sh {{n}}
 
 # Pull trunk in every clean clone. Skips non-trunk branches and dirty trees.
 [group('manage')]

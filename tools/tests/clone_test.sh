@@ -90,6 +90,24 @@ check "summary is the last line" "Cloned p11 → main @ $sha (synced 2h ago)" "$
 
 # ---------------------------------------------------------------------------
 echo
+echo "clone: a count adds that many clones, one summary line each"
+
+out=$( cd "$WS" && ./.spork/tools/clone.sh 3 )
+check "three summary lines" "3" "$(grep -c '^Cloned ' <<<"$out")"
+for n in 12 13 14; do
+    check "p$n created on trunk" "main" "$(git -C "$WS/p$n" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    check "POST_CLONE ran in p$n" "1" "$([[ -f "$WS/p$n/.post-clone-ran" ]] && echo 1 || echo 0)"
+done
+
+# A bad count is rejected before anything is created.
+out=$( cd "$WS" && ./.spork/tools/clone.sh 2x 2>&1 ); rc=$?
+check "non-numeric count rejected" "1" "$(( rc != 0 ? 1 : 0 ))"
+check "rejection explains usage" "1" "$(grep -ci "usage" <<<"$out")"
+check "zero count rejected" "1" "$( (cd "$WS" && ./.spork/tools/clone.sh 0) >/dev/null 2>&1; echo $(( $? != 0 ? 1 : 0 )) )"
+check "no clone created on bad count" 1 "$([[ -e "$WS/p15" ]] && echo 0 || echo 1)"
+
+# ---------------------------------------------------------------------------
+echo
 nfail=$(wc -l < "$FAILFILE" | tr -d ' ')
 echo "failed: $nfail"
 (( nfail == 0 ))

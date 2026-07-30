@@ -145,7 +145,7 @@ adding by hand is `POST_CLONE`; the file's comments explain the rest.
 | Command | What it does |
 | --- | --- |
 | `just clean <name>` | Reset a clone back to `open`. |
-| `just clone` | Add a clone to the pool. |
+| `just clone [N]` | Add N clones to the pool (default 1). |
 | `just pull` | Update every clean clone. |
 
 ### advanced — session history
