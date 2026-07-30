@@ -15,6 +15,37 @@ set -uo pipefail
 # shellcheck source=_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
+# Run a command quietly behind a progress line: "<msg> ... done", with a dot
+# ticking per second while it runs on a tty (captured output stays a
+# deterministic "... done"). git's chatter is plumbing the user doesn't need —
+# but on failure the line ends "failed" and the captured stderr prints in
+# full, so auth/URL diagnostics survive the quieting.
+run_quiet() {
+    local msg="$1" rc=0 err pid
+    shift
+    err=$(mktemp "${TMPDIR:-/tmp}/spork-quiet.XXXXXX")
+    printf '%s ...' "$msg"
+    if [[ -t 1 ]]; then
+        "$@" >/dev/null 2>"$err" &
+        pid=$!
+        while kill -0 "$pid" 2>/dev/null; do
+            printf '.'
+            sleep 1
+        done
+        wait "$pid" || rc=$?
+    else
+        "$@" >/dev/null 2>"$err" || rc=$?
+    fi
+    if (( rc == 0 )); then
+        printf ' done\n'
+    else
+        printf ' failed\n'
+        cat "$err" >&2
+    fi
+    rm -f "$err"
+    return "$rc"
+}
+
 if [[ ! -d "$MIRROR_DIR" ]]; then
     # Seed from an existing local clone instead of re-downloading from origin.
     seed=""
@@ -24,16 +55,14 @@ if [[ ! -d "$MIRROR_DIR" ]]; then
     done < <(spork_clones)
 
     if [[ -n "$seed" ]]; then
-        echo "Seeding mirror from $(basename "$seed") (no network) ..."
-        git clone --mirror "$seed/.git" "$MIRROR_DIR"
+        run_quiet "Seeding mirror from $(basename "$seed") (no network)" \
+            git clone --mirror "$seed/.git" "$MIRROR_DIR" || exit 1
         git -C "$MIRROR_DIR" remote set-url origin "$ORIGIN_URL"
-        echo "Fetching latest refs from origin ..."
-        git -C "$MIRROR_DIR" fetch --prune
+        run_quiet "Fetching latest refs from origin" \
+            git -C "$MIRROR_DIR" fetch --prune || exit 1
     else
-        # git's own progress passes through untouched: the download is the one
-        # real network wait here, and silence on a big repo reads as hung.
-        echo "Cloning mirror from origin (one-time, full history) ..."
-        git clone --mirror "$ORIGIN_URL" "$MIRROR_DIR"
+        run_quiet "Cloning mirror from origin (one-time, full history)" \
+            git clone --mirror "$ORIGIN_URL" "$MIRROR_DIR" || exit 1
     fi
 else
     echo "Mirror already exists (skipping clone)."

@@ -56,7 +56,10 @@ check "config is the example placeholder" 0 $?
 check "justfile scaffolded" 0 "$(exists "$ws/justfile")"
 check "no mirror created" 1 "$(exists "$ws/.spork.local/runtime/mirror.git")"
 check "no clone created" 1 "$(exists "$ws/p1")"
-check "ledger uses workspace-relative paths" "1" "$(grep -Fc "  created .spork.local/config" <<<"$out")"
+check "ledger is flush left with a placeholder note" "1" \
+    "$(grep -Ec '^created \.spork\.local/config  \(placeholder' <<<"$out")"
+check "justfile row carries its import note" "1" \
+    "$(grep -Ec '^created justfile +\(imports \.spork/spork\.just\)' <<<"$out")"
 check "no ensured-runtime noise" "0" "$(grep -c "ensured" <<<"$out")"
 
 # ---------------------------------------------------------------------------
@@ -78,14 +81,18 @@ check "clone has the seeded history" "init" \
 check "clone origin points at the real remote" "$ORIGIN" \
     "$(git -C "$ws/p1" config --get remote.origin.url 2>/dev/null)"
 
-# Output contract: a created/exists ledger, one mirror narration line, the
-# clone summary, and a footer naming the clone — no step noise, no scare lines.
+# Output contract: a flush-left created/exists ledger with aligned detail
+# parentheticals, one quiet mirror line ("... done", dots only on a tty), the
+# clone summary, and a footer naming the clone — no git chatter, no scare lines.
 check "ledger: config line with origin and trunk" "1" \
-    "$(grep -Fc "  created .spork.local/config  (origin $ORIGIN, trunk trunk)" <<<"$out")"
-check "ledger: justfile line" "1" "$(grep -Fc "  created justfile" <<<"$out")"
+    "$(grep -Fc "created .spork.local/config  (origin $ORIGIN, trunk trunk)" <<<"$out")"
+check "ledger: justfile line with import note" "1" \
+    "$(grep -Ec '^created justfile +\(imports \.spork/spork\.just\)' <<<"$out")"
+check "ledger rows are flush left" "2" "$(grep -c '^created ' <<<"$out")"
 check "no ensured-runtime noise" "0" "$(grep -c "ensured" <<<"$out")"
-check "mirror narration is the single origin mention" "1" \
-    "$(grep -Fc "Cloning mirror from origin (one-time, full history) ..." <<<"$out")"
+check "mirror line is quiet and completes in place" "1" \
+    "$(grep -Fc "Cloning mirror from origin (one-time, full history) ... done" <<<"$out")"
+check "git chatter suppressed" "0" "$(grep -c "Cloning into bare repository" <<<"$out")"
 check "old clone narration gone" "0" "$(grep -c "No existing local clone found" <<<"$out")"
 check "no 'No clones found' scare line" "0" "$(grep -c "No clones of" <<<"$out")"
 check "clone summary line present" "1" "$(grep -Ec "^Cloned p1 → trunk @ [0-9a-f]+" <<<"$out")"
@@ -107,8 +114,8 @@ check "re-run exits 0" 0 "$rc"
 check "no second clone" 1 "$(exists "$ws/p2")"
 grep -Fxq "ORIGIN_URL=$ORIGIN" "$ws/.spork.local/config"
 check "config untouched" 0 $?
-check "re-run ledger: config exists" "1" "$(grep -Fc "  exists  .spork.local/config" <<<"$out")"
-check "re-run ledger: justfile exists" "1" "$(grep -Fc "  exists  justfile" <<<"$out")"
+check "re-run ledger: config exists" "1" "$(grep -Ec '^exists  \.spork\.local/config$' <<<"$out")"
+check "re-run ledger: justfile exists" "1" "$(grep -Ec '^exists  justfile$' <<<"$out")"
 check "re-run: mirror skip drops the long path" "1" \
     "$(grep -Fc "Mirror already exists (skipping clone)." <<<"$out")"
 check "re-run footer stays generic" "1" \
@@ -160,6 +167,22 @@ out=$( cd "$ws" && ./.spork/init "$TMP/nope.git" 2>&1 ); rc=$?
 check "bad url exits non-zero" 1 "$rc"
 check "no config written on failure" 1 "$(exists "$ws/.spork.local/config")"
 check "no mirror created on failure" 1 "$(exists "$ws/.spork.local/runtime/mirror.git")"
+
+# ---------------------------------------------------------------------------
+echo
+echo "sync-setup: a failed mirror download says so and shows git's stderr"
+ws=$(new_ws mirrorfail)
+mkdir -p "$ws/.spork.local"
+printf 'ORIGIN_URL=%s\nTRUNK_BRANCH=trunk\n' "$TMP/gone.git" > "$ws/.spork.local/config"
+out=$( cd "$ws" && ./.spork/tools/setup-mirror.sh 2>&1 ); rc=$?
+check "failed download exits non-zero" 1 "$(( rc != 0 ? 1 : 0 ))"
+check "progress line ends in failed" "1" \
+    "$(grep -Fc "Cloning mirror from origin (one-time, full history) ... failed" <<<"$out")"
+case "$out" in
+    *"does not exist"*|*"not found"*|*"No such"*) ok "git's own error passes through" ;;
+    *) bad "git's own error passes through (got [$out])" ;;
+esac
+check "no half-made mirror left behind" 1 "$(exists "$ws/.spork.local/runtime/mirror.git")"
 
 # ---------------------------------------------------------------------------
 echo
