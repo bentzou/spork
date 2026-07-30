@@ -102,12 +102,12 @@ jx () {
 ## How it works
 
 `just sync-setup` creates one shared mirror of your repo, and every
-clone borrows its git history from it. So history is stored on disk
-only once no matter how many clones you have, `just clone` needs no
-network and almost no disk, and `just sync` downloads new commits once
-and hands them to every clone.
+clone borrows its git history from it. History lives on disk once, no
+matter how many clones you have. `just clone` needs no network and
+almost no disk. `just sync` downloads new commits once and hands them
+to every clone.
 
-## Why full clones instead of worktrees?
+### Why full clones instead of worktrees?
 
 The pool layer — claiming, status, sessions, sync — doesn't care what
 a unit is made of. spork uses full clones because the isolation is
