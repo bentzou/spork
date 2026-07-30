@@ -126,9 +126,9 @@ adding by hand is `POST_CLONE`; the file's comments explain the rest.
 
 | Setting | What it does |
 | --- | --- |
-| `TRUNK_BRANCH` | The branch the pool revolves around: new clones check it out, `just sync`/`just pull` fast-forward it, and a clone on any other branch counts as `parked`. `init` detects the remote's default (`main`, `master`, …) — set it by hand when your team works off something else, e.g. `TRUNK_BRANCH=dev`. |
-| `CLONE_PREFIX` | Names the clones: the default `p` gives `p1`, `p2`, `p3`, … and `just clone` picks the highest existing number plus one. `CLONE_PREFIX=clone-` gives `clone-1`, `clone-2`, …. |
-| `POST_CLONE` | Bash command run inside every new clone after the trunk checkout, and again when `just clean --full` wipes ignored files. Git only delivers tracked files, so this is where a clone becomes runnable — e.g. `POST_CLONE='bun install && bun run db:setup'`. |
+| `TRUNK_BRANCH` | The branch the pool revolves around — `init` detects it, so set it only when your team works off something else (e.g. `dev`). |
+| `CLONE_PREFIX` | Clone naming: `p` gives `p1`, `p2`, `p3`, …. |
+| `POST_CLONE` | Command run inside each new clone to make it runnable, e.g. `'bun install && bun run db:setup'`. |
 
 ## Commands
 
