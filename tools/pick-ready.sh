@@ -4,7 +4,7 @@
 # Ready means: on trunk, clean working tree, in sync with upstream (see
 # is_ready in _lib.sh). Clones with a live claim are skipped so navigation
 # doesn't drop you into a clone someone is already working in. This is the
-# read-only picker behind `just go`/`jg`; it does NOT claim — use claim.sh
+# read-only picker behind `just next`; it does NOT claim — use claim.sh
 # (`just claude`/`jc`) when you're about to start a session. Exits non-zero
 # with a message on stderr if nothing qualifies.
 

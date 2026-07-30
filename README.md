@@ -148,4 +148,5 @@ e.g. `POST_CLONE='bun install'`. The file's comments explain the rest.
 | Command | What it does |
 | --- | --- |
 | `just log [N]` | List recent sessions. |
+| `just next` | Print the path of the next open clone. |
 | `just resume <id\|name>` | Reopen a past session. |

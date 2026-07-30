@@ -62,12 +62,6 @@ claim owner agent='claude':
 release clone owner:
     @./.spork/tools/release.sh "{{clone}}" "{{owner}}"
 
-# Print the path of the first ready, unclaimed clone.
-# Private: plumbing for a shell alias that cds to the printed path.
-[private]
-go:
-    @./.spork/tools/pick-ready.sh
-
 # One-line status per clone (no network).
 [group('use')]
 status:
@@ -126,6 +120,11 @@ log-claude *n:
 [private]
 log-codex *n:
     @./.spork/tools/log-all.sh --agent codex "{{n}}"
+
+# Print the path of the next open clone (pair with a shell alias that cds to it).
+[group('advanced')]
+next:
+    @./.spork/tools/pick-ready.sh
 
 # ID is a session id (or short id from `just log`), or a clone name like p3
 # to resume whatever session was last active there. Claims that session's
