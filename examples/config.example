@@ -12,6 +12,11 @@
 #                 POST_CLONE='bun install'
 #                 POST_CLONE='pnpm install && pnpm run prepare'
 #                 POST_CLONE=./scripts/setup-new-clone.sh
+# CLONE_SUBDIR: optional clone-relative dir sessions should start in — for
+#               monorepos where the app lives below the repo root. `just
+#               claude`/`codex` cd there and `just next` prints it; the pool
+#               still claims and manages whole clones.
+#               Example: CLONE_SUBDIR=src/my-app
 # SPORK_AGENTS: optional, space-separated agent backends whose sessions spork
 #               scans and can resume. Default: "claude codex".
 # SPORK_LIVE_COMMANDS: optional, space-separated process names whose cwd

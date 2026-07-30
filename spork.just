@@ -21,16 +21,19 @@
 # with that prompt. Bare words are joined into one prompt (the CLIs take a
 # single prompt positional and drop the rest); if any arg starts with `-`,
 # everything passes through untouched so flags like `--resume` work.
+# CLONE_SUBDIR (from .spork.local/config) points sessions at a monorepo
+# subdir — the claim/release still own the whole clone.
 # Claim the first ready, unclaimed clone, open Claude in it, and release on exit.
 [group('use')]
 [positional-arguments]
 claude *args:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
      case " $* " in *" -"*) ;; *) [ $# -gt 1 ] && set -- "$*";; esac; \
+     sub=$(. ./.spork.local/config 2>/dev/null; printf '%s' "${CLONE_SUBDIR:-}"); \
      path=$(./.spork/tools/claim.sh "$owner" claude) || exit 1; \
      trap 'bash "$rel" "$path" "$owner"' EXIT; \
      printf '\033]0;%s\007' "$(basename "$path")"; \
-     cd "$path" && claude "$@"
+     cd "$path${sub:+/$sub}" && claude "$@"
 
 # Claim the first ready, unclaimed clone, open Codex in it, and release on exit.
 [group('use')]
@@ -38,10 +41,11 @@ claude *args:
 codex *args:
     @owner=$$; rel="$PWD/.spork/tools/release.sh"; \
      case " $* " in *" -"*) ;; *) [ $# -gt 1 ] && set -- "$*";; esac; \
+     sub=$(. ./.spork.local/config 2>/dev/null; printf '%s' "${CLONE_SUBDIR:-}"); \
      path=$(./.spork/tools/claim.sh "$owner" codex) || exit 1; \
      trap 'bash "$rel" "$path" "$owner"' EXIT; \
      printf '\033]0;%s\007' "$(basename "$path")"; \
-     cd "$path" && codex "$@"
+     cd "$path${sub:+/$sub}" && codex "$@"
 
 # OWNER is a long-lived PID that keeps the claim held — pass your interactive
 # shell's $$ so a shell function can `cd` into the path and `release` it later,
@@ -121,10 +125,13 @@ log-claude *n:
 log-codex *n:
     @./.spork/tools/log-all.sh --agent codex "{{n}}"
 
-# Print the path of the next open clone (pair with a shell alias that cds to it).
+# Pair with a shell alias that cds to the printed path.
+# Print the path of the next open clone (honors CLONE_SUBDIR).
 [group('advanced')]
 next:
-    @./.spork/tools/pick-ready.sh
+    @path=$(./.spork/tools/pick-ready.sh) || exit 1; \
+     sub=$(. ./.spork.local/config 2>/dev/null; printf '%s' "${CLONE_SUBDIR:-}"); \
+     echo "$path${sub:+/$sub}"
 
 # ID is a session id (or short id from `just log`), or a clone name like p3
 # to resume whatever session was last active there. Claims that session's
