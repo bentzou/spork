@@ -120,8 +120,11 @@ else
 fi
 
 echo
+# Lead with `cd` only when the caller isn't already in the workspace.
+cdhint=""
+[[ "$PWD" != "$workspace" ]] && cdhint="\`cd $workspace\`, then "
 if [[ -n "$grab" ]]; then
-    echo "Workspace ready. Try \`just status\`, then \`just claude\` to grab $grab."
+    echo "Workspace ready. Try ${cdhint}\`just status\`, then \`just claude\` to grab $grab."
 else
-    echo "Workspace ready. Try \`just status\`, then \`just claude\`."
+    echo "Workspace ready. Try ${cdhint}\`just status\`, then \`just claude\`."
 fi

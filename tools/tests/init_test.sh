@@ -91,6 +91,13 @@ check "no 'No clones found' scare line" "0" "$(grep -c "No clones of" <<<"$out")
 check "clone summary line present" "1" "$(grep -Ec "^Cloned p1 → trunk @ [0-9a-f]+" <<<"$out")"
 check "footer names the fresh clone" "1" \
     "$(grep -Fc "Workspace ready. Try \`just status\`, then \`just claude\` to grab p1." <<<"$out")"
+check "no cd hint when already in the workspace" "0" "$(grep -c "cd " <<<"$out")"
+
+# Invoked from outside the workspace, the footer leads with the cd.
+out=$( cd "$TMP" && "$ws/.spork/init" "$ORIGIN" 2>&1 ); rc=$?
+check "outside invocation exits 0" 0 "$rc"
+check "footer leads with cd when run from elsewhere" "1" \
+    "$(grep -Fc "Workspace ready. Try \`cd $ws\`, then \`just status\`, then \`just claude\`." <<<"$out")"
 
 # ---------------------------------------------------------------------------
 echo
