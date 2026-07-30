@@ -35,18 +35,11 @@ workspace=$(cd "$spork_dir/.." && pwd)
 local_dir="$workspace/.spork.local"
 config="$local_dir/config"
 
-# The ledger below names each artifact workspace-relative — one flush-left
-# line per created/exists verdict, with the artifact's one interesting fact in
-# an aligned parenthetical; internal plumbing (runtime/) doesn't earn a line.
+# Scaffolding is summarized as one sentence after the fact ("Initialized
+# spork workspace (…)"); individual files don't earn lines. made_any tracks
+# whether this run created anything, for the initialized-vs-already wording.
 mkdir -p "$local_dir/runtime"
-
-ledger() { # ledger <verb> <name> [detail]
-    if [[ -n "${3:-}" ]]; then
-        printf '%-7s %-19s  %s\n' "$1" "$2" "$3"
-    else
-        printf '%-7s %s\n' "$1" "$2"
-    fi
-}
+made_any=0
 
 if [[ -n "$origin_url" ]]; then
     # A config someone already filled in wins; only absence or the untouched
@@ -62,7 +55,6 @@ if [[ -n "$origin_url" ]]; then
             echo "       (asked to init with $origin_url)" >&2
             exit 1
         fi
-        ledger exists .spork.local/config
     else
         # Ask the remote for its default branch before writing anything, so a
         # bad URL or auth failure leaves no half-configured workspace behind.
@@ -74,30 +66,44 @@ if [[ -n "$origin_url" ]]; then
         trunk=$(awk '$1 == "ref:" { sub("refs/heads/", "", $2); print $2; exit }' <<<"$remote_head")
         if [[ -z "$trunk" ]]; then
             trunk=main
-            echo "  note: remote has no default branch (detached HEAD); assuming '$trunk'"
+            echo "note: remote has no default branch (detached HEAD); assuming '$trunk'"
         fi
         sed -e "s|^ORIGIN_URL=.*|ORIGIN_URL=$origin_url|" \
             -e "s|^TRUNK_BRANCH=.*|TRUNK_BRANCH=$trunk|" \
             "$spork_dir/examples/config.example" > "$config"
-        ledger created .spork.local/config "(origin $origin_url, trunk $trunk)"
+        made_any=1
     fi
-elif [[ -f "$config" ]]; then
-    ledger exists .spork.local/config
-else
+elif [[ ! -f "$config" ]]; then
     cp "$spork_dir/examples/config.example" "$config"
-    ledger created .spork.local/config "(placeholder — set ORIGIN_URL first)"
+    made_any=1
 fi
 
+justfile_note=""
 if [[ -f "$workspace/justfile" ]]; then
-    ledger exists justfile
     if ! grep -q "import '.spork/spork.just'" "$workspace/justfile" 2>/dev/null; then
-        echo "        (add \`import '.spork/spork.just'\` to pull in spork's"
-        echo "         recipes — see .spork/examples/justfile.example)"
+        justfile_note="note: justfile doesn't import .spork/spork.just — add the import to pull
+      in spork's recipes (see .spork/examples/justfile.example)"
     fi
 else
     cp "$spork_dir/examples/justfile.example" "$workspace/justfile"
-    ledger created justfile "(imports .spork/spork.just)"
+    made_any=1
 fi
+
+# One friendly sentence for the scaffolding, carrying the workspace's two
+# defining facts when they're known (origin + trunk; on a resume the trunk
+# comes from the existing config).
+if [[ -n "$origin_url" ]]; then
+    [[ -n "${trunk:-}" ]] || trunk=$(bash -c ". '$config' 2>/dev/null; printf '%s' \"\${TRUNK_BRANCH:-}\"")
+    detail=" (origin $origin_url${trunk:+, trunk $trunk})"
+else
+    detail=""
+fi
+if (( made_any )); then
+    echo "Initialized spork workspace$detail"
+else
+    echo "Workspace already initialized$detail"
+fi
+[[ -n "$justfile_note" ]] && echo "$justfile_note"
 
 if [[ -z "$origin_url" ]]; then
     cat <<EOF
@@ -120,9 +126,7 @@ echo
 # previous run). spork_clones needs the config we just ensured above.
 clones=$( ( cd "$workspace" && . .spork/tools/_lib.sh && spork_clones ) 2>/dev/null || true )
 grab=""
-if [[ -n "$clones" ]]; then
-    ledger exists clones "(skipping first clone)"
-else
+if [[ -z "$clones" ]]; then
     "$spork_dir/tools/clone.sh"
     # Name the fresh clone in the footer: highest-numbered = the one just made.
     grab=$(basename "$( ( cd "$workspace" && . .spork/tools/_lib.sh && spork_clones ) 2>/dev/null | tail -1 )")
