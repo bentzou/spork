@@ -89,19 +89,13 @@ else
     made_any=1
 fi
 
-# One friendly sentence for the scaffolding, carrying the workspace's two
-# defining facts when they're known (origin + trunk; on a resume the trunk
-# comes from the existing config).
-if [[ -n "$origin_url" ]]; then
-    [[ -n "${trunk:-}" ]] || trunk=$(bash -c ". '$config' 2>/dev/null; printf '%s' \"\${TRUNK_BRANCH:-}\"")
-    detail=" (origin $origin_url${trunk:+, trunk $trunk})"
-else
-    detail=""
-fi
+# One friendly sentence for the scaffolding. No detail parenthetical: the
+# origin was just typed by the caller, and the trunk shows in the clone
+# summary two lines later.
 if (( made_any )); then
-    echo "Initialized spork workspace$detail"
+    echo "Initialized spork workspace"
 else
-    echo "Workspace already initialized$detail"
+    echo "Workspace already initialized"
 fi
 [[ -n "$justfile_note" ]] && echo "$justfile_note"
 
