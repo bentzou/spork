@@ -24,7 +24,7 @@ run_quiet() {
     local msg="$1" rc=0 err pid
     shift
     err=$(mktemp "${TMPDIR:-/tmp}/spork-quiet.XXXXXX")
-    printf '%s ...' "$msg"
+    printf '%s%s ...' "${SPORK_INDENT:-}" "$msg"
     if [[ -t 1 ]]; then
         "$@" >/dev/null 2>"$err" &
         pid=$!
@@ -65,7 +65,7 @@ if [[ ! -d "$MIRROR_DIR" ]]; then
             git clone --mirror "$ORIGIN_URL" "$MIRROR_DIR" || exit 1
     fi
 else
-    echo "Mirror already exists (skipping clone)."
+    echo "${SPORK_INDENT:-}Mirror already exists (skipping clone)."
 fi
 
 MIRROR_OBJECTS="$MIRROR_DIR/objects"
@@ -146,5 +146,5 @@ link_one() {
 
 for path in "${paths[@]}"; do
     name=$(basename "$path")
-    printf '%-*s  %s\n' "$max_width" "$name" "$(link_one "$path")"
+    printf '%s%-*s  %s\n' "${SPORK_INDENT:-}" "$max_width" "$name" "$(link_one "$path")"
 done

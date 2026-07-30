@@ -68,7 +68,7 @@ ensure_status_perf "$target"
 # Optional per-workspace bootstrap (POST_CLONE in .spork/config) — e.g.
 # `bun install`, `pnpm install && pnpm run prepare`. Runs in the new clone.
 if [[ -n "${POST_CLONE:-}" ]]; then
-    echo "Running POST_CLONE: $POST_CLONE"
+    echo "${SPORK_INDENT:-}Running POST_CLONE: $POST_CLONE"
     ( cd "$target" && eval "$POST_CLONE" )
 fi
 
@@ -82,4 +82,6 @@ if [[ -f "$RUNTIME_DIR/last-sync" ]]; then
         synced=" (synced $(format_relative $(( $(date +%s) - epoch ))) ago)"
     fi
 fi
-echo "Cloned $CLONE_PREFIX$next → $TRUNK_BRANCH @ $(git -C "$target" rev-parse --short HEAD)$synced"
+# SPORK_INDENT (exported by init) nests this line under init's summary;
+# standalone `just clone` prints it flush.
+echo "${SPORK_INDENT:-}Cloned $CLONE_PREFIX$next → $TRUNK_BRANCH @ $(git -C "$target" rev-parse --short HEAD)$synced"

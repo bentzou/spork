@@ -85,12 +85,13 @@ check "clone origin points at the real remote" "$ORIGIN" \
 check "friendly summary line" "1" "$(grep -Ec '^Initialized spork workspace$' <<<"$out")"
 check "no per-file ledger noise" "0" "$(grep -c '^created ' <<<"$out")"
 check "no ensured-runtime noise" "0" "$(grep -c "ensured" <<<"$out")"
-check "mirror line is quiet and completes in place" "1" \
-    "$(grep -Fc "Cloning mirror from origin (one-time, full history) ... done" <<<"$out")"
+check "mirror line nests under the summary" "1" \
+    "$(grep -Ec '^  Cloning mirror from origin \(one-time, full history\) \.\.\. done$' <<<"$out")"
 check "git chatter suppressed" "0" "$(grep -c "Cloning into bare repository" <<<"$out")"
 check "old clone narration gone" "0" "$(grep -c "No existing local clone found" <<<"$out")"
 check "no 'No clones found' scare line" "0" "$(grep -c "No clones of" <<<"$out")"
-check "clone summary line present" "1" "$(grep -Ec "^Cloned p1 → trunk @ [0-9a-f]+" <<<"$out")"
+check "clone summary nests under the summary" "1" "$(grep -Ec "^  Cloned p1 → trunk @ [0-9a-f]+" <<<"$out")"
+check "footer stays flush left" "1" "$(grep -c "^Workspace ready" <<<"$out")"
 check "footer names the fresh clone" "1" \
     "$(grep -Fc "Workspace ready. Try \`just status\`, then \`just claude\` to grab p1." <<<"$out")"
 check "no cd hint when already in the workspace" "0" "$(grep -c "cd " <<<"$out")"
@@ -112,8 +113,8 @@ check "config untouched" 0 $?
 check "re-run says already initialized" "1" \
     "$(grep -Ec '^Workspace already initialized$' <<<"$out")"
 check "re-run has no per-file rows" "0" "$(grep -c '^exists ' <<<"$out")"
-check "re-run: mirror skip drops the long path" "1" \
-    "$(grep -Fc "Mirror already exists (skipping clone)." <<<"$out")"
+check "re-run: mirror skip nests, drops the long path" "1" \
+    "$(grep -Ec '^  Mirror already exists \(skipping clone\)\.$' <<<"$out")"
 check "re-run footer stays generic" "1" \
     "$(grep -Fc "Workspace ready. Try \`just status\`, then \`just claude\`." <<<"$out")"
 
@@ -172,8 +173,8 @@ mkdir -p "$ws/.spork.local"
 printf 'ORIGIN_URL=%s\nTRUNK_BRANCH=trunk\n' "$TMP/gone.git" > "$ws/.spork.local/config"
 out=$( cd "$ws" && ./.spork/tools/setup-mirror.sh 2>&1 ); rc=$?
 check "failed download exits non-zero" 1 "$(( rc != 0 ? 1 : 0 ))"
-check "progress line ends in failed" "1" \
-    "$(grep -Fc "Cloning mirror from origin (one-time, full history) ... failed" <<<"$out")"
+check "progress line ends in failed, flush when standalone" "1" \
+    "$(grep -Ec '^Cloning mirror from origin \(one-time, full history\) \.\.\. failed$' <<<"$out")"
 case "$out" in
     *"does not exist"*|*"not found"*|*"No such"*) ok "git's own error passes through" ;;
     *) bad "git's own error passes through (got [$out])" ;;

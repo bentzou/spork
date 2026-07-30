@@ -81,8 +81,8 @@ fi
 justfile_note=""
 if [[ -f "$workspace/justfile" ]]; then
     if ! grep -q "import '.spork/spork.just'" "$workspace/justfile" 2>/dev/null; then
-        justfile_note="note: justfile doesn't import .spork/spork.just — add the import to pull
-      in spork's recipes (see .spork/examples/justfile.example)"
+        justfile_note="  note: justfile doesn't import .spork/spork.just — add the import to pull
+        in spork's recipes (see .spork/examples/justfile.example)"
     fi
 else
     cp "$spork_dir/examples/justfile.example" "$workspace/justfile"
@@ -113,7 +113,11 @@ EOF
     exit 0
 fi
 
-echo
+# The mirror/clone steps narrate themselves; the exported indent nests their
+# lines under the summary above (standalone runs of the same tools stay
+# flush). An in-process pipe couldn't do this without hiding the tty from
+# run_quiet's dot ticker.
+export SPORK_INDENT="  "
 "$spork_dir/tools/setup-mirror.sh"
 
 # First clone, unless the workspace already has one (adopted or from a
