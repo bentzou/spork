@@ -331,6 +331,61 @@ check "PR sits before BRANCH" "PR BRANCH" "$(status | head -1 | awk '{print $(NF
 
 # ---------------------------------------------------------------------------
 echo
+echo "status: merged verdict — PR landed AND tip matches its headRefOid"
+
+make_workspace 2
+mkdir -p "$WS/.spork.local/runtime"
+oid=$(git -C "$WS/pX" rev-parse HEAD)
+
+# The full predicate holds: clean tree, off trunk, cached merged PR, tip match.
+printf 'feature\t123\tmerged\t%s\n' "$oid" > "$WS/.spork.local/runtime/pr-map"
+check "merged PR + matching tip -> merged" "merged" "$(state_of pX)"
+check "merged PR cell carries the glyph" "#123⅄" "$(field_of PR pX)"
+
+# New commits after the merge move the tip: the fact stays, the verdict drops.
+printf 'feature\t123\tmerged\tdeadbeef\n' > "$WS/.spork.local/runtime/pr-map"
+check "merged PR + drifted tip -> parked" "parked" "$(state_of pX)"
+check "fact glyph survives the drift" "#123⅄" "$(field_of PR pX)"
+
+# A dirty tree means work in progress: never merged.
+printf 'feature\t123\tmerged\t%s\n' "$oid" > "$WS/.spork.local/runtime/pr-map"
+: > "$WS/pX/dirty.txt"
+check "merged PR + dirty tree -> parked" "parked" "$(state_of pX)"
+rm "$WS/pX/dirty.txt"
+
+# Occupancy still wins over everything but broken.
+m=$(live_pid)
+claim_clone pX "$m" >/dev/null
+check "occupied overrides merged" "in use" "$(state_of pX)"
+release_clone pX "$m" >/dev/null
+
+# An open PR gets neither verdict nor glyph.
+printf 'feature\t123\topen\t%s\n' "$oid" > "$WS/.spork.local/runtime/pr-map"
+check "open PR -> parked" "parked" "$(state_of pX)"
+check "open PR cell is plain" "#123" "$(field_of PR pX)"
+
+# Legacy 2-field rows (pre-state cache) behave like open.
+printf 'feature\t123\n' > "$WS/.spork.local/runtime/pr-map"
+check "legacy row -> parked" "parked" "$(state_of pX)"
+check "legacy row cell is plain" "#123" "$(field_of PR pX)"
+
+# The footer names the reclaimable clone with the exact command.
+printf 'feature\t123\tmerged\t%s\n' "$oid" > "$WS/.spork.local/runtime/pr-map"
+last=$(status | tail -1)
+case "$last" in
+    *"1 merged"*"just clean pX"*) ok "footer nudges the reclaim" ;;
+    *) bad "footer nudges the reclaim (got [$last])" ;;
+esac
+# ...and disappears when nothing is reclaimable.
+printf 'feature\t123\topen\t%s\n' "$oid" > "$WS/.spork.local/runtime/pr-map"
+last=$(status | tail -1)
+case "$last" in
+    *merged*) bad "no verdicts -> no nudge (got [$last])" ;;
+    *) ok "no verdicts -> no nudge" ;;
+esac
+
+# ---------------------------------------------------------------------------
+echo
 echo "status: rows are ordered naturally (p10 after p9, not after p1)"
 
 # A fresh workspace with >9 ready clones exposes lexicographic vs natural order:

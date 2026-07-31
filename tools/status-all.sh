@@ -16,7 +16,7 @@ SESSION_MAX=56
 
 status_for() {
     local path="$1"
-    local branch="?" ahead=0 behind=0 dirty_count=0 state line porcelain
+    local branch="?" oid="" ahead=0 behind=0 dirty_count=0 state line porcelain
 
     # One `git status --porcelain=v2 --branch` answers everything the verdict
     # needs — branch, ahead/behind vs a configured upstream, and the dirty
@@ -33,6 +33,7 @@ status_for() {
     # upstream is configured — absent means nothing to compare, i.e. in sync.
     while IFS= read -r line; do
         case "$line" in
+            "# branch.oid "*)  oid="${line#\# branch.oid }" ;;
             "# branch.head "*) branch="${line#\# branch.head }" ;;
             "# branch.ab "*)   line="${line#\# branch.ab }"
                                ahead="${line%% *}";  ahead="${ahead#+}"
@@ -48,12 +49,26 @@ status_for() {
     #   broken  — git can't read the repo (returned above; trumps everything)
     #   in use  — someone is in it (overlaid by the parent at render time,
     #             where the process sweep has finished; overrides git state)
+    #   merged  — the branch's PR landed and the local tip IS the commit
+    #             GitHub merged (clean tree): nothing here exists only here,
+    #             so `just clean` reclaims it safely
     #   parked  — human work blocks a clean pickup: off trunk and/or dirty
     #             tree (parked on trunk implies the latter)
     #   pull/push — on trunk, clean, but behind/ahead of upstream
     #   open    — trunk, clean, in sync, nobody in it → what `jc` hands you
+    #
+    # The merged verdict compares the tip to the merged PR's headRefOid (from
+    # the sync-time cache) rather than asking git about ancestry — squash
+    # merges never make the branch an ancestor of trunk, and a reused branch
+    # with new commits moves the tip off the oid. Either way the comparison
+    # only says merged when the branch is exactly what GitHub absorbed.
     if [[ "$branch" != "$TRUNK_BRANCH" ]] || (( dirty_count > 0 )); then
         state="parked"
+        if [[ "$branch" != "$TRUNK_BRANCH" && -n "$oid" ]] && (( dirty_count == 0 )); then
+            local pr_rest
+            pr_rest=$(pr_info_for_branch "$branch"); pr_rest="${pr_rest#*|}"
+            [[ "$pr_rest" == "merged|$oid" ]] && state="merged"
+        fi
     elif (( behind > 0 )); then
         state="pull"
     elif (( ahead > 0 )); then
@@ -225,10 +240,17 @@ for i in "${!paths[@]}"; do
     fi
 
     # The branch's PR, from the sync-time gh cache or the pr-<n> naming
-    # convention (see pr_for_branch). Branches without one stay blank.
+    # convention (see pr_info_for_branch). Branches without one stay blank.
+    # A merged PR carries the ⅄ suffix (turned Y — two lines joining into
+    # one, GitHub's merge shape): the *fact* that the PR landed, shown even
+    # when new commits keep the row parked. STATE carries the verdict.
     pr=""
-    pr_num=$(pr_for_branch "$branch")
-    [[ -n "$pr_num" ]] && pr="#$pr_num"
+    pr_info=$(pr_info_for_branch "$branch")
+    if [[ -n "$pr_info" ]]; then
+        pr="#${pr_info%%|*}"
+        pr_rest="${pr_info#*|}"
+        [[ "${pr_rest%%|*}" == "merged" ]] && pr+="⅄"
+    fi
 
     name_cells+=("$name")
     branch_cells+=("$branch")
@@ -289,12 +311,16 @@ if (( ${#active_idx[@]} > 1 )); then
     active_idx=("${sorted[@]}")
 fi
 
-c_green='' c_yellow='' c_cyan='' c_orange='' c_red='' c_link='' c_branch='' c_trunk='' c_reset=''
+c_green='' c_yellow='' c_cyan='' c_orange='' c_red='' c_purple='' c_purple_dim='' c_link='' c_branch='' c_trunk='' c_reset=''
 if [[ -t 1 ]]; then
     c_green=$'\033[32m'
     c_yellow=$'\033[33m'
     c_cyan=$'\033[36m'
     c_orange=$'\033[38;5;173m'  # muted terracotta
+    c_purple=$'\033[38;5;135m'  # GitHub-merged purple (fixed palette index,
+                                # so themes can't remap it into default text)
+    c_purple_dim=$'\033[38;5;97m'  # muted step of the same hue, for the ⅄
+                                   # glyph — annotation, not headline
     c_red=$'\033[31m'
     c_link=$'\033[4;34m'     # underlined blue: the classic "this is a link"
     c_branch=$'\033[38;5;139m'   # muted plum (256-color): a step brighter
@@ -316,6 +342,7 @@ use_links=0
 state_color() {
     case "$1" in
         open)               printf '%s' "$c_green"  ;;
+        merged)             printf '%s' "$c_purple" ;;
         parked)             printf '%s' "$c_cyan"   ;;
         "in use"|pull|push) printf '%s' "$c_yellow" ;;
         broken)             printf '%s' "$c_red"    ;;
@@ -376,12 +403,17 @@ print_row() {
     pad_tail sess_tail  "$session_width" "$session"
 
     # Clickable when the terminal supports OSC 8; underlined blue marks it
-    # as a link. Padding counts only the visible "#123", like the color
-    # escapes above.
-    local pr_out="$pr"
-    [[ -n "$pr" ]] && pr_out="${c_link}${pr}${c_reset}"
-    if [[ -n "$pr" ]] && (( use_links )); then
-        pr_out=$'\033]8;;'"$web_url/pull/${pr#\#}"$'\033\\'"$pr_out"$'\033]8;;\033\\'
+    # as a link. Padding counts only the visible "#123⅄", like the color
+    # escapes above. The ⅄ merged glyph sits outside the hyperlink — the
+    # number is the link, the glyph is annotation — and wears the muted
+    # purple so the STATE word stays the louder of the two signals.
+    local pr_out="" pr_num="${pr%⅄}"
+    if [[ -n "$pr" ]]; then
+        pr_out="${c_link}${pr_num}${c_reset}"
+        if (( use_links )); then
+            pr_out=$'\033]8;;'"$web_url/pull/${pr_num#\#}"$'\033\\'"$pr_out"$'\033]8;;\033\\'
+        fi
+        [[ "$pr" != "$pr_num" ]] && pr_out+="${c_purple_dim}⅄${c_reset}"
     fi
 
     printf '%s%s%s%s   %s%s   %s%s%s%s   %s%s%s%s   %s%s%s%s   %s%s   %s\n' \
@@ -397,6 +429,13 @@ print_row() {
 # Active clones first, then open ones (the grabbable answer) last.
 for i in ${active_idx[@]+"${active_idx[@]}"}; do print_row "$i"; done
 for i in ${open_idx[@]+"${open_idx[@]}"}; do print_row "$i"; done
+
+# Reclaimable clones, for the footer's nudge (verdict rows only — occupied
+# or drifted ones already lost the merged state upstream).
+merged_names=()
+for i in "${!paths[@]}"; do
+    [[ "${state_cells[$i]}" == "merged" ]] && merged_names+=("${name_cells[$i]}")
+done
 
 # Join "$@" with " · ".
 join_dot() {
@@ -429,6 +468,19 @@ print_footer() {
         reset=$'\033[0m'
     fi
 
+    # The reclaim nudge: merged rows are latent capacity, so the remedy is
+    # printed next to the signal — bare enough to run on reflex. Joins the
+    # last-sync line when one renders, stands alone otherwise.
+    local note="" joined="" n
+    for n in ${merged_names[@]+"${merged_names[@]}"}; do
+        joined+="${joined:+, }$n"
+    done
+    if (( ${#merged_names[@]} == 1 )); then
+        note="1 merged — \`just clean $joined\` reclaims it"
+    elif (( ${#merged_names[@]} > 1 )); then
+        note="${#merged_names[@]} merged ($joined) — \`just clean <name>\` reclaims them"
+    fi
+
     if [[ -d "$LOCK_DIR" ]]; then
         local started elapsed rel
         started=$(stat -f %B "$LOCK_DIR" 2>/dev/null || echo 0)
@@ -439,11 +491,15 @@ print_footer() {
         else
             printf '\n%ssyncing in background%s\n' "$dim" "$reset"
         fi
+        [[ -n "$note" ]] && printf '%s%s%s\n' "$dim" "$note" "$reset"
         return
     fi
 
     local last="$RUNTIME_DIR/last-sync"
-    [[ -f "$last" ]] || return 0
+    if [[ ! -f "$last" ]]; then
+        [[ -n "$note" ]] && printf '\n%s%s%s\n' "$dim" "$note" "$reset"
+        return 0
+    fi
 
     local line; line=$(cat "$last")
     local epoch duration pulled fetched failed
@@ -461,9 +517,10 @@ print_footer() {
     [[ -n "$pulled" ]]  && parts+=("pulled $(csv_human "$pulled")")
     [[ -n "$fetched" ]] && parts+=("fetched $(csv_count "$fetched")")
     if [[ -n "$failed" ]]; then
-        local n; n=$(csv_count "$failed")
-        parts+=("$n failed ($(csv_human "$failed"))")
+        local nf; nf=$(csv_count "$failed")
+        parts+=("$nf failed ($(csv_human "$failed"))")
     fi
+    [[ -n "$note" ]] && parts+=("$note")
 
     if (( ${#parts[@]} == 0 )); then
         printf '\n%slast sync %s ago (%ss)%s\n' "$dim" "$rel" "$duration" "$reset"
