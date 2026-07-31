@@ -169,18 +169,31 @@ origin_web_url() {
     return 0
 }
 
-# PR number for a branch, or empty. Two sources, no network: the cache
-# pr-map.sh wrote during the last `just sync` ("<branch>\t<number>" lines,
-# checked first so it stays authoritative), then the pr-<N> naming
-# convention for branches checked out from someone else's PR.
-pr_for_branch() {
-    local branch="$1" b n
+# PR info for a branch as "number|state|oid", or empty. Two sources, no
+# network: the cache pr-map.sh wrote during the last `just sync`
+# ("<branch>\t<number>\t<state>\t<headRefOid>" lines, checked first so it
+# stays authoritative), then the pr-<N> naming convention for branches checked
+# out from someone else's PR (number only — state and oid unknown). Legacy
+# 2-field rows read as state `open` with no oid, so a stale cache can never
+# produce a merged verdict.
+pr_info_for_branch() {
+    local branch="$1" b n s o
     if [[ -f "$RUNTIME_DIR/pr-map" ]]; then
-        while IFS=$'\t' read -r b n; do
-            if [[ "$b" == "$branch" ]]; then printf '%s' "$n"; return 0; fi
+        while IFS=$'\t' read -r b n s o _; do
+            if [[ "$b" == "$branch" ]]; then
+                printf '%s|%s|%s' "$n" "${s:-open}" "$o"
+                return 0
+            fi
         done < "$RUNTIME_DIR/pr-map"
     fi
-    [[ "$branch" =~ ^pr-([0-9]+)$ ]] && printf '%s' "${BASH_REMATCH[1]}"
+    [[ "$branch" =~ ^pr-([0-9]+)$ ]] && printf '%s||' "${BASH_REMATCH[1]}"
+    return 0
+}
+
+# Just the PR number for a branch, or empty (pr_info_for_branch's first field).
+pr_for_branch() {
+    local info; info=$(pr_info_for_branch "$1")
+    [[ -n "$info" ]] && printf '%s' "${info%%|*}"
     return 0
 }
 
