@@ -480,6 +480,30 @@ check "BRANCH starts at the header's column" "${#hdr_prefix}" "${#row_prefix}"
 
 # ---------------------------------------------------------------------------
 echo
+echo "status: exits 0 whichever footer branch renders"
+
+# The "syncing in background" branch ends print_footer — and the script — so
+# a bare `return` after the short-circuited nudge printf leaked exit 1 out of
+# the whole script when there was no nudge, making `just sync` report a
+# phantom recipe failure.
+make_workspace 1
+mkdir -p "$WS/.spork.local/runtime/sync.lock"
+status >/dev/null
+check "sync lock + no nudge exits 0" "0" "$?"
+out=$(status)
+check "footer still says syncing" "1" "$(grep -c 'syncing in background' <<<"$out")"
+
+rmdir "$WS/.spork.local/runtime/sync.lock"
+status >/dev/null
+check "no lock, no last-sync exits 0" "0" "$?"
+
+printf '%s 6 pulled= fetched=p1 failed=\n' "$(date +%s)" \
+    > "$WS/.spork.local/runtime/last-sync"
+status >/dev/null
+check "last-sync footer exits 0" "0" "$?"
+
+# ---------------------------------------------------------------------------
+echo
 nfail=$(wc -l < "$FAILFILE" | tr -d ' ')
 echo "failed: $nfail"
 (( nfail == 0 ))

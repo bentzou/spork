@@ -492,7 +492,7 @@ print_footer() {
             printf '\n%ssyncing in background%s\n' "$dim" "$reset"
         fi
         [[ -n "$note" ]] && printf '%s%s%s\n' "$dim" "$note" "$reset"
-        return
+        return 0
     fi
 
     local last="$RUNTIME_DIR/last-sync"
