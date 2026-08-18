@@ -2,7 +2,7 @@
 
 spork is a pool manager for coding-agent workspaces. It keeps clones
 of your repo (`p1`, `p2`, `p3`, …) and drops you into the next free
-one.
+one. Use any prefix you like (`p`, `clone-`, etc).
 
 - `just claude` / `just codex` — grabs a free clone and starts a
   session in it
