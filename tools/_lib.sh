@@ -290,8 +290,9 @@ proc_attached() {
 # (Process detection above can't replace this: an lsof snapshot has a wide
 # check-to-launch window, so two concurrent grabs would both see "free".)
 #
-# A claim is "live" iff its owner PID is still running. A claim whose owner has
-# died (normal exit that skipped release, crash, SIGKILL) is stale and freely
+# A claim is "live" iff its owner PID is still running *and* is still the same
+# process that took the claim (see claim_live). A claim whose owner has died
+# (normal exit that skipped release, crash, SIGKILL) is stale and freely
 # reclaimable — so occupancy self-heals with no background reaper. Callers
 # should still release explicitly on normal exit to free the clone promptly.
 
@@ -302,6 +303,15 @@ claim_owner() {
     local name="$1" owner=""
     read -r owner 2>/dev/null < "$CLAIMS_DIR/$name/pid" || true
     printf '%s' "$owner"
+}
+
+# Opaque identity string for a live PID — its process start time — or empty if
+# no such process exists. Recorded alongside a claim's PID and re-checked by
+# claim_live so a PID the OS later recycles onto an unrelated process (routine
+# after enough days/reboots) can't be mistaken for the original owner still
+# being alive.
+pid_start_time() {
+    ps -o lstart= -p "$1" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
 # Agent recorded for a claim, or empty for old/manual claims.
@@ -319,11 +329,21 @@ claim_epoch() {
     stat -f %m "$CLAIMS_DIR/$1/pid" 2>/dev/null
 }
 
-# True if <clone-name> has a live claim (owner process still running).
+# True if <clone-name> has a live claim: the owner PID is running, and — when
+# a start-time marker was recorded for it — still the same process that took
+# the claim. A PID that's alive but started later than the marker belongs to
+# whatever the OS has since recycled it to, not the claim's owner, so that
+# reads as stale rather than live. Claims from before this check existed have
+# no marker and fall back to PID-only liveness.
 claim_live() {
-    local name="$1" owner
+    local name="$1" owner stored_start
     owner=$(claim_owner "$name")
-    [[ -n "$owner" ]] && kill -0 "$owner" 2>/dev/null
+    [[ -n "$owner" ]] || return 1
+    kill -0 "$owner" 2>/dev/null || return 1
+    stored_start=""
+    read -r stored_start 2>/dev/null < "$CLAIMS_DIR/$name/start" || true
+    [[ -z "$stored_start" ]] && return 0
+    [[ "$(pid_start_time "$owner")" == "$stored_start" ]]
 }
 
 # True if a clone path is occupied: a live claim (intent) OR a watched
@@ -337,18 +357,21 @@ clone_occupied() {
 # Atomically claim <clone-name> for <pid>. Succeeds (0) if the clone was free
 # or held only a stale claim; fails (1) if a live owner already holds it.
 try_claim() {
-    local name="$1" pid="$2" agent="${3:-claude}" d
+    local name="$1" pid="$2" agent="${3:-claude}" d start
     d="$CLAIMS_DIR/$name"
     mkdir -p "$CLAIMS_DIR"
+    start=$(pid_start_time "$pid")
     if mkdir "$d" 2>/dev/null; then
         printf '%s\n' "$pid" > "$d/pid"
         printf '%s\n' "$agent" > "$d/agent"
+        printf '%s\n' "$start" > "$d/start"
         return 0
     fi
     # Directory exists: live owner blocks us; a dead owner is reclaimable.
     claim_live "$name" && return 1
     printf '%s\n' "$pid" > "$d/pid"
     printf '%s\n' "$agent" > "$d/agent"
+    printf '%s\n' "$start" > "$d/start"
     return 0
 }
 

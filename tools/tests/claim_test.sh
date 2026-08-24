@@ -114,6 +114,25 @@ make_workspace 3
     # release by a non-owner whose claim is live must be refused.
     release_claim p2 "$b"; check "non-owner release refused" 1 $?
 
+    # PID reuse: the owner never released (crashed, force-quit, machine
+    # reboot) and, days later, an unrelated live process gets assigned the
+    # same PID number by the OS. kill -0 alone can't tell them apart — only
+    # the recorded start-time marker can — so a mismatched marker must read
+    # the claim as stale even though "the PID" is alive.
+    try_claim p3 "$b"; check "claim p3 for start-time test" 0 $?
+    clone_occupied "$WS/p3"; check "p3 occupied by its real owner" 0 $?
+    echo "definitely not $b's real start time" > "$RUNTIME_DIR/claims/p3/start"
+    clone_occupied "$WS/p3"; check "mismatched start marker reads free despite live pid" 1 $?
+    try_claim p3 "$a"; check "reclaim over a PID-reuse false-positive succeeds" 0 $?
+
+    # Claims written before this check existed have no start marker at all —
+    # they must keep falling back to PID-only liveness, not read as stale.
+    release_claim p3 "$a"
+    mkdir -p "$RUNTIME_DIR/claims/p3"; echo "$b" > "$RUNTIME_DIR/claims/p3/pid"
+    rm -f "$RUNTIME_DIR/claims/p3/start"
+    clone_occupied "$WS/p3"; check "no start marker falls back to PID-only liveness" 0 $?
+    release_claim p3 "$b"
+
     # claim_epoch dates the *current* claim (the pid file's mtime): empty when
     # unclaimed, now-ish when claimed, and refreshed by a stale reclaim even
     # though the claim dir itself survives from the previous owner.
