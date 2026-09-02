@@ -78,6 +78,62 @@ check "no transcript at all stays the empty row" "codex||" \
     "$(spork_occupant_session "$WS/p3" codex 1)"
 
 echo
+echo "codex title: fallbacks and awkward transcripts"
+
+# A rollout with no user_message (e.g. a session that only ran tool calls,
+# or one still being written) falls back to the meta title, then to empty.
+# These files can be tens of MB; the lookup must not depend on scanning them.
+nomsg="$CODEX_SESSIONS_DIR/2026/07/20/rollout-2026-07-20T00-00-00-55550000-dddd-eeee-ffff-000000000005.jsonl"
+{
+    printf '{"timestamp":"2026-07-20T00:00:00.000Z","type":"session_meta","payload":{"session_id":"55550000-dddd-eeee-ffff-000000000005","cwd":"%s","title":"Meta title"}}\n' "$WS/p2"
+    printf '{"timestamp":"2026-07-20T00:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"not a user_message record"}]}}\n'
+} > "$nomsg"
+touch -t 202607200005 "$nomsg"
+check "no user_message -> meta title" "Meta title" "$(codex_session_title "$nomsg")"
+
+# The first user_message must be an event_msg — a tool output that quotes
+# a "user_message" string does not count, and the real one after it wins.
+quoted="$CODEX_SESSIONS_DIR/2026/07/20/rollout-2026-07-20T00-00-00-66660000-dddd-eeee-ffff-000000000006.jsonl"
+{
+    printf '{"timestamp":"2026-07-20T00:00:00.000Z","type":"session_meta","payload":{"session_id":"66660000-dddd-eeee-ffff-000000000006","cwd":"%s"}}\n' "$WS/p2"
+    printf '{"timestamp":"2026-07-20T00:01:00.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","output":"{\\"type\\":\\"user_message\\",\\"message\\":\\"decoy\\"}"}}\n'
+    printf '{"timestamp":"2026-07-20T00:02:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"Real title"}}\n'
+} > "$quoted"
+touch -t 202607200006 "$quoted"
+check "first event_msg user_message wins over quoted decoy" "Real title" "$(codex_session_title "$quoted")"
+
+echo
+echo "session inventory: metadata edge cases"
+
+# session_meta placed after a leading record (older/external logs) is still
+# indexed; a JSON-escaped cwd still matches its clone; a meta with neither
+# session_id nor id falls back to the file-name id.
+late_meta="$CODEX_SESSIONS_DIR/2026/07/20/rollout-2026-07-20T00-00-00-77770000-dddd-eeee-ffff-000000000007.jsonl"
+{
+    printf '{"timestamp":"2026-07-20T00:00:00.000Z","type":"turn_context","payload":{}}\n'
+    printf '{"timestamp":"2026-07-20T00:00:01.000Z","type":"session_meta","payload":{"id":"77770000-dddd-eeee-ffff-000000000007","cwd":"%s"}}\n' "${WS//\//\\/}/p2"
+} > "$late_meta"
+no_id="$CODEX_SESSIONS_DIR/2026/07/20/rollout-2026-07-20T00-00-00-88880000-dddd-eeee-ffff-000000000008.jsonl"
+printf '{"timestamp":"2026-07-20T00:00:00.000Z","type":"session_meta","payload":{"cwd":"%s"}}\n' "$WS/p2" > "$no_id"
+no_meta="$CODEX_SESSIONS_DIR/2026/07/20/rollout-2026-07-20T00-00-00-99990000-dddd-eeee-ffff-000000000009.jsonl"
+printf '{"timestamp":"2026-07-20T00:00:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"orphan"}}\n' > "$no_meta"
+
+edge_inv="$WS/edge-inventory"
+spork_session_inventory_build "$edge_inv" "$WS/p1" "$WS/p2"
+check "late session_meta is indexed with payload id" "77770000-dddd-eeee-ffff-000000000007" \
+    "$(awk -F $'\t' -v f="$late_meta" '$5 == f { print $4 }' "$edge_inv")"
+check "escaped cwd maps to its clone" "$WS/p2" \
+    "$(awk -F $'\t' -v f="$late_meta" '$5 == f { print $3 }' "$edge_inv")"
+check "meta without ids falls back to file-name id" "88880000-dddd-eeee-ffff-000000000008" \
+    "$(awk -F $'\t' -v f="$no_id" '$5 == f { print $4 }' "$edge_inv")"
+check "transcript without session_meta is skipped" "0" \
+    "$(awk -F $'\t' -v f="$no_meta" '$5 == f { n++ } END { print n+0 }' "$edge_inv")"
+check "raw reader agrees with inventory for p2" \
+    "$(codex_clone_session_files_raw "$WS/p2" | awk '{ print $2 }' | sort)" \
+    "$(awk -F $'\t' -v p="$WS/p2" '$3 == p { print $5 }' "$edge_inv" | sort)"
+rm -f "$late_meta" "$no_id" "$no_meta" "$nomsg" "$quoted"
+
+echo
 echo "session inventory: indexes once and serves clone readers"
 
 inventory="$WS/session-inventory"

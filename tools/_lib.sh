@@ -663,7 +663,17 @@ codex_session_title() {
     local file="$1" line title
     # Prefer the first real user message, which matches Codex's own thread
     # preview closely enough for spork's status/log display.
-    line=$(awk '/"type":"event_msg"/ && /"type":"user_message"/ { print; exit }' "$file" 2>/dev/null)
+    #
+    # Fixed-string grep, not an awk regex pass: a rollout with no user
+    # message at all (tool-only sessions, or one Codex is still writing)
+    # forces a read of the whole file, and rollouts reach tens of MB. grep -F
+    # covers that in milliseconds where awk's per-line regex took over a
+    # second — and `just status` pays it once per non-open Codex clone. The
+    # first grep narrows to user_message lines; the second keeps only real
+    # event_msg records (a tool output quoting a user_message is not one)
+    # and stops at the first, so the match case stays cheap too.
+    line=$(LC_ALL=C grep -F '"type":"user_message"' "$file" 2>/dev/null \
+        | LC_ALL=C grep -m1 -F '"type":"event_msg"')
     title=$(json_string_field "$line" message)
     [[ -z "$title" ]] && title=$(json_string_field "$line" text)
     [[ -z "$title" ]] && title=$(json_string_field "$(codex_session_meta_line "$file")" title)
@@ -739,11 +749,20 @@ spork_session_inventory_build() {
     if agent_valid codex && [[ -d "$CODEX_SESSIONS_DIR" ]]; then
         mapping="$output.codex-map.$$"
         : > "$mapping"
-        while IFS= read -r file; do
-            [[ -f "$file" ]] || continue
-            # One metadata read serves both the cwd match and the session id.
-            line=$(codex_session_meta_line "$file")
-            cwd=$(json_string_field "$line" cwd)
+        # One awk process reads every rollout's session_meta and emits
+        # "<cwd>\t<id>\t<file>" per transcript. The per-file bash version
+        # cost three subshells per rollout (meta read, cwd parse, id parse),
+        # and a few hundred rollouts made that ~2s of fork overhead on macOS
+        # — serialized ahead of every status run. awk stops reading each
+        # file at its meta line (nextfile), so the pass is bounded by line-1
+        # sizes, not transcript sizes; a rollout with no session_meta is read
+        # through and emits nothing, same as before. The value parse mirrors
+        # json_string_field: text up to the next quote, then the three
+        # escapes a path or id can realistically carry. Fields are joined by
+        # the ASCII unit separator: bash's `read` collapses runs of whitespace
+        # delimiters, so a tab-separated row with an empty id would shift the
+        # file name into the id column.
+        while IFS=$'\x1f' read -r cwd id file; do
             [[ -n "$cwd" ]] || continue
             matched=""
             for path in "${paths[@]}"; do
@@ -753,10 +772,33 @@ spork_session_inventory_build() {
                 fi
             done
             [[ -n "$matched" ]] || continue
-            id=$(codex_session_id_from_meta "$line" "$file")
+            if [[ -z "$id" ]]; then
+                id="${file##*/}"
+                id="${id%.jsonl}"
+                id="${id#rollout-????-??-??T??-??-??-}"
+            fi
             codex_files+=("$file")
             printf '%s\t%s\t%s\n' "$matched" "$id" "$file" >> "$mapping"
-        done < <(find "$CODEX_SESSIONS_DIR" -type f -name '*.jsonl' 2>/dev/null)
+        done < <(find "$CODEX_SESSIONS_DIR" -type f -name '*.jsonl' -exec awk '
+            function field(s, key,    needle, i, v) {
+                needle = "\"" key "\":\""
+                i = index(s, needle)
+                if (i == 0) return ""
+                v = substr(s, i + length(needle))
+                i = index(v, "\"")
+                if (i > 0) v = substr(v, 1, i - 1)
+                gsub(/\\"/, "\"", v)
+                gsub(/\\\//, "/", v)
+                gsub(/\\\\/, "\\", v)
+                return v
+            }
+            index($0, "\"type\":\"session_meta\"") {
+                id = field($0, "session_id")
+                if (id == "") id = field($0, "id")
+                printf "%s\x1f%s\x1f%s\n", field($0, "cwd"), id, FILENAME
+                nextfile
+            }
+        ' {} + 2>/dev/null)
 
         if (( ${#codex_files[@]} > 0 )); then
             # Join stat's actual survivors back to their clone paths by file
