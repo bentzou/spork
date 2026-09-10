@@ -130,15 +130,29 @@ echo
 echo "clean: snaps trunk to origin's tracking ref when one exists"
 
 # Simulate a fetched origin/main, then advance local main past it: those
-# trunk commits exist nowhere else, so they're unpushed work -> --force.
+# Remote trunk is authoritative even when local trunk has diverged.
 shaA=$(git -C "$WS/p3" rev-parse HEAD)
 git -C "$WS/p3" update-ref refs/remotes/origin/main "$shaA"
 gc p3 commit -q --allow-empty -m "unpushed trunk commit"
 out=$(clean p3 2>&1); rc=$?
-check "trunk ahead of origin refused without --force" 1 "$rc"
-clean p3 --force >/dev/null 2>&1; rc=$?
-check "--force snaps to origin ref" 0 "$rc"
+check "trunk ahead resets without --force" 0 "$rc"
 check "HEAD == origin/main" "$shaA" "$(git -C "$WS/p3" rev-parse HEAD)"
+
+# Distinct commits on each side exercise divergence rather than just ahead.
+gc p3 commit -q --allow-empty -m "local trunk"
+git -C "$WS/p3" checkout -q -b remote-fixture "$shaA"
+gc p3 commit -q --allow-empty -m "remote trunk"
+remote_tip=$(git -C "$WS/p3" rev-parse HEAD)
+git -C "$WS/p3" update-ref refs/remotes/origin/main "$remote_tip"
+git -C "$WS/p3" checkout -q main
+out=$(clean p3 2>&1); rc=$?
+check "diverged trunk resets without --force" 0 "$rc"
+check "diverged trunk matches remote" "$remote_tip" "$(git -C "$WS/p3" rev-parse HEAD)"
+
+gc p3 commit -q --allow-empty -m "other trunk work"
+git -C "$WS/p3" checkout -q -b feature-fixture
+out=$(clean p3 2>&1); rc=$?
+check "off-trunk cleanup still guards unpushed trunk work" 1 "$rc"
 
 # ---------------------------------------------------------------------------
 echo

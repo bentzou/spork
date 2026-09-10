@@ -6,7 +6,7 @@
 #   2. Fetch the shared bare mirror once (single network download).
 #   3. In parallel, for each clone with a 'mirror' remote configured:
 #        - git fetch mirror (local; updates origin/* tracking refs)
-#        - if branch == $TRUNK_BRANCH and tree clean: git merge --ff-only
+#        - if branch == $TRUNK_BRANCH, tree clean and unoccupied: reset to origin
 #        - otherwise: leave branch work alone
 #   4. Wait, log a `done` line.
 #
@@ -42,7 +42,9 @@ fi
 
 # Step 1: single network fetch.
 mirror_start=$(date +%s)
+mirror_fresh=0
 if mirror_out=$(git -C "$MIRROR_DIR" fetch --prune --quiet 2>&1); then
+    mirror_fresh=1
     printf 'mirror: fetched in %ss\n' "$(( $(date +%s) - mirror_start ))" >> "$LOG_FILE"
 else
     printf 'mirror: failed: %s\n' "$(echo "$mirror_out" | head -1)" >> "$LOG_FILE"
@@ -124,10 +126,20 @@ sync_one() {
         return
     fi
 
-    local before after merge_err
+    if (( mirror_fresh == 0 )); then
+        printf '%s: fetched only (remote refresh failed)%s\n' "$name" "$repair_note"
+        return
+    fi
+
+    if clone_occupied "$path"; then
+        printf '%s: fetched only (in use)%s\n' "$name" "$repair_note"
+        return
+    fi
+
+    local before after reset_err
     before=$(git -C "$path" rev-parse HEAD)
-    if ! merge_err=$(git -C "$path" merge --ff-only --quiet "origin/$TRUNK_BRANCH" 2>&1); then
-        printf '%s: failed: merge --ff-only: %s\n' "$name" "$(echo "$merge_err" | head -1)"
+    if ! reset_err=$(git -C "$path" reset --hard --quiet "origin/$TRUNK_BRANCH" 2>&1); then
+        printf '%s: failed: reset to origin: %s\n' "$name" "$(echo "$reset_err" | head -1)"
         return
     fi
     after=$(git -C "$path" rev-parse HEAD)

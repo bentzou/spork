@@ -10,8 +10,8 @@
 # touch a clone someone is in (live claim or detected claude/terminal), and
 # closes dedicated gcloud SQL tunnel terminals after the loss guard passes.
 # Requires python3 for conservative tunnel process-group detection. It
-# refuses to discard work only you have — a dirty tree, unpushed trunk
-# commits — unless --force.
+# refuses to discard a dirty tree unless --force. When already on trunk,
+# origin is authoritative, including when local trunk has diverged.
 #
 # --full   also wipes ignored files (git clean -x: node_modules, build
 #          caches, local envs) and reruns POST_CLONE to rebuild them.
@@ -66,14 +66,14 @@ if git -C "$path" rev-parse -q --verify "refs/remotes/origin/$TRUNK_BRANCH" >/de
     base="refs/remotes/origin/$TRUNK_BRANCH"
 fi
 
-# Loss guard: only work that exists nowhere but here counts — uncommitted
-# changes and unpushed trunk commits. Branch refs survive untouched, so
-# branch work is never a loss. Any loss refuses without --force, keeping the
-# bare command safe to reflex-run.
+# Loss guard: preserve uncommitted work. On trunk, remote wins over local
+# commits. From another branch, retain the unpushed-trunk guard because that
+# trunk work isn't the checkout the user asked to clean. Feature refs survive.
 losses=()
 dirty_count=$(git -C "$path" status --porcelain | wc -l | tr -d ' ')
 (( dirty_count > 0 )) && losses+=("$dirty_count uncommitted change(s)")
-if [[ "$base" == refs/remotes/* ]]; then
+branch=$(git -C "$path" symbolic-ref --short -q HEAD || true)
+if [[ "$base" == refs/remotes/* && "$branch" != "$TRUNK_BRANCH" ]]; then
     ahead=$(git -C "$path" rev-list --count "$base..refs/heads/$TRUNK_BRANCH" 2>/dev/null || echo 0)
     (( ahead > 0 )) && losses+=("$ahead unpushed commit(s) on $TRUNK_BRANCH")
 fi

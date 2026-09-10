@@ -89,10 +89,11 @@ sync-setup:
     @./.spork/tools/setup-mirror.sh
 
 # NAME is a clone name or path. Local branches are kept. Refuses occupied
-# clones; refuses to discard uncommitted changes or unpushed trunk commits
+# clones; refuses to discard uncommitted changes or (when off trunk) unpushed trunk commits
 # without --force; --full also wipes ignored files (node_modules etc.) and
 # reruns POST_CLONE.
 # Dedicated gcloud SQL tunnel terminals are closed automatically (python3 required).
+# On trunk, the remote tracking ref wins even if local commits have diverged.
 # Clean a clone back to open: latest trunk, clean tree; branches kept.
 [group('manage')]
 clean name *flags:
