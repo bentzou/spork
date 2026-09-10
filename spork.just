@@ -71,7 +71,7 @@ release clone owner:
 status:
     @./.spork/tools/status-all.sh
 
-# Status table, then background fetch/pull via the shared mirror.
+# Status table, then background tunnel-only recovery and fetch/pull via the shared mirror.
 [group('use')]
 sync:
     @./.spork/tools/status-all.sh

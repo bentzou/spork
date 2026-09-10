@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +18,70 @@ COMMAND = ("bash -c gcloud compute ssh sql-bastion --project=ploy-production "
 
 
 class TunnelTests(unittest.TestCase):
+    def test_background_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / ".spork").symlink_to(Path(__file__).resolve().parents[2])
+            local = workspace / ".spork.local"
+            local.mkdir()
+            (local / "config").write_text("ORIGIN_URL=test:tunnel.git\nTRUNK_BRANCH=main\n")
+            clone = workspace / "p1"
+            subprocess.run(["git", "init", "-q", str(clone)], check=True)
+            subprocess.run(["git", "-C", str(clone), "remote", "add", "origin",
+                            "test:tunnel.git"], check=True)
+            (clone / "keep.txt").write_text("unfinished work")
+            executable = workspace / "gcloud"
+            executable.write_text("#!/bin/sh\nexec sleep 60\n")
+            executable.chmod(0o755)
+            children = []
+            def launch(command):
+                child = subprocess.Popen(
+                    ["bash", "-c", command], cwd=clone,
+                    env={**os.environ, "PATH": directory + ":" + os.environ["PATH"]},
+                    start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                children.append(child)
+                time.sleep(0.05)
+                return child
+            def recover():
+                # Exercise the actual sync entrypoint, including the no-mirror path.
+                result = subprocess.run(["bash", str(workspace / ".spork/tools/sync-bg.sh")],
+                                        cwd=workspace, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            try:
+                tunnel = launch(COMMAND.removeprefix("bash -c "))
+                claim = local / "runtime/claims/p1"
+                claim.mkdir(parents=True)
+                (claim / "pid").write_text(str(os.getpid()))
+                recover()
+                self.assertIsNone(tunnel.poll(), "live claim protects tunnel")
+                (claim / "pid").unlink()
+                claim.rmdir()
+                shell = launch("sleep 60; echo done")
+                recover()
+                self.assertIsNone(tunnel.poll(), "ordinary shell protects tunnel")
+                os.killpg(shell.pid, 15)
+                shell.wait(timeout=5)
+                recover()
+                self.assertEqual(tunnel.wait(timeout=5), -15)
+                self.assertEqual((clone / "keep.txt").read_text(), "unfinished work")
+                log = (local / "runtime/sync.log").read_text()
+                self.assertIn("p1: Closing tunnel terminal", log)
+            finally:
+                for child in children:
+                    if child.poll() is None:
+                        os.killpg(child.pid, 15)
+                        child.wait(timeout=5)
+
+    def test_agent_blocks_automatic_recovery(self):
+        rows = {100: (1, 100, os.getuid(), COMMAND),
+                101: (1, 101, os.getuid(), "claude")}
+        def run(args, **kwargs):
+            if args[0] == "pgrep":
+                return subprocess.CompletedProcess(args, 0, "101\n")
+            return subprocess.CompletedProcess(args, 0, "n/private/tmp/p1\n")
+        with patch.object(tunnels.subprocess, "run", side_effect=run):
+            self.assertTrue(tunnels.other_occupants("/private/tmp/p1", rows))
+
     def test_narrow_wrapper(self):
         self.assertIsNotNone(tunnels.WRAPPER.fullmatch(COMMAND))
         for command in ["bash", "bash -l", COMMAND + "; echo other-work",

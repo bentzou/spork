@@ -65,7 +65,37 @@ def inside(pid, path):
     )
 
 
-def close(path):
+def other_occupants(path, rows):
+    """Use Spork's watched process names, excluding verified tunnel groups."""
+    groups = {pid for pid in rows if dedicated(pid, rows)}
+    for command in os.environ.get("SPORK_LIVE_COMMANDS", "claude codex zsh bash fish").split():
+        result = subprocess.run(
+            ["pgrep", "-x", "-u", str(os.getuid()), command],
+            capture_output=True, text=True,
+        )
+        if result.returncode not in (0, 1):
+            raise RuntimeError("Cannot inspect live occupants")
+        for value in result.stdout.split():
+            pid = int(value)
+            if pid in rows and rows[pid][1] in groups:
+                continue
+            cwd = subprocess.run(
+                ["lsof", "-a", "-d", "cwd", "-p", str(pid), "-Fn"],
+                capture_output=True, text=True,
+            )
+            names = [os.path.realpath(line[1:]) for line in cwd.stdout.splitlines()
+                     if line.startswith("n")]
+            if cwd.returncode != 0 or not names:
+                # A disappearing process is fine; an unreadable live one isn't.
+                if pid in snapshot():
+                    raise RuntimeError("Cannot inspect an occupant's working directory")
+                continue
+            if any(name == path or name.startswith(path + os.sep) for name in names):
+                return True
+    return False
+
+
+def close(path, only_occupant=False):
     path = os.path.realpath(path)
     closed = []
     for pid, row in snapshot().items():
@@ -74,6 +104,8 @@ def close(path):
         current = snapshot()
         if current.get(pid) != row or not dedicated(pid, current):
             continue
+        if only_occupant and other_occupants(path, current):
+            return
         try:
             os.killpg(pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -90,6 +122,6 @@ def close(path):
 
 if __name__ == "__main__":
     try:
-        close(sys.argv[1])
+        close(sys.argv[1], only_occupant="--only-occupant" in sys.argv[2:])
     except (OSError, subprocess.SubprocessError, RuntimeError) as error:
         sys.exit(f"Cannot safely close tunnels: {error}")

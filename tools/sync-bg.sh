@@ -32,6 +32,9 @@ trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 start_epoch=$(date +%s)
 printf '== sync started %s ==\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG_FILE"
 
+# Recover tunnel-only occupancy even if mirror setup or the network is unavailable.
+bash "$SPORK_DIR/tools/recover-tunnels.sh" >> "$LOG_FILE" 2>&1
+
 if [[ ! -d "$MIRROR_DIR" ]]; then
     echo "mirror not found at $MIRROR_DIR — run \`just sync-setup\` first" >> "$LOG_FILE"
     exit 0
