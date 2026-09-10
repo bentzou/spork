@@ -92,6 +92,7 @@ sync-setup:
 # clones; refuses to discard uncommitted changes or unpushed trunk commits
 # without --force; --full also wipes ignored files (node_modules etc.) and
 # reruns POST_CLONE.
+# Dedicated gcloud SQL tunnel terminals are closed automatically (python3 required).
 # Clean a clone back to open: latest trunk, clean tree; branches kept.
 [group('manage')]
 clean name *flags:

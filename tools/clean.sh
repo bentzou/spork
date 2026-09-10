@@ -8,6 +8,8 @@
 # and removes untracked files. Local branches are left strictly alone: their
 # refs keep whatever work they hold, parked in the background. Refuses to
 # touch a clone someone is in (live claim or detected claude/terminal), and
+# closes dedicated gcloud SQL tunnel terminals after the loss guard passes.
+# Requires python3 for conservative tunnel process-group detection. It
 # refuses to discard work only you have — a dirty tree, unpushed trunk
 # commits — unless --force.
 #
@@ -51,7 +53,7 @@ if ! git -C "$path" status --porcelain >/dev/null 2>&1; then
     exit 1
 fi
 
-if clone_occupied "$path"; then
+if claim_live "$name"; then
     echo "$name is in use — a session or terminal is attached to it. Exit that" >&2
     echo "first (\`just status\` shows who's where)." >&2
     exit 1
@@ -80,6 +82,18 @@ if (( ${#losses[@]} > 0 && force == 0 )); then
     echo "$name has work a clean would discard:" >&2
     for l in "${losses[@]}"; do echo "  - $l" >&2; done
     echo "Re-run with --force to discard it." >&2
+    exit 1
+fi
+
+tunnel_output=$(python3 "$SPORK_DIR/tools/close-tunnels.py" "$path") || exit 1
+# The tunnel shell may have appeared in an earlier cached process sweep.
+if [[ -n "$tunnel_output" ]]; then
+    printf '%s\n' "$tunnel_output"
+    unset SPORK_PROC_SWEEP_LOADED SPORK_PROC_SWEEP
+fi
+if clone_occupied "$path"; then
+    echo "$name is in use — a session or terminal is attached to it. Exit that" >&2
+    echo "first (\`just status\` shows who's where)." >&2
     exit 1
 fi
 

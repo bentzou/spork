@@ -1,0 +1,109 @@
+import importlib.util
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location(
+    "tunnels", Path(__file__).resolve().parents[1] / "close-tunnels.py"
+)
+tunnels = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tunnels)
+COMMAND = ("bash -c gcloud compute ssh sql-bastion --project=ploy-production "
+           "--zone=us-central1-a --tunnel-through-iap -- -N -L 25432:10.176.0.4:5432; "
+           "read -p 'Tunnel exited. Press Enter to close.'")
+
+
+class TunnelTests(unittest.TestCase):
+    def test_narrow_wrapper(self):
+        self.assertIsNotNone(tunnels.WRAPPER.fullmatch(COMMAND))
+        for command in ["bash", "bash -l", COMMAND + "; echo other-work",
+                        COMMAND.replace("-N -L", "-L"),
+                        COMMAND.replace("sql-bastion", "$(something)")]:
+            self.assertIsNone(tunnels.WRAPPER.fullmatch(command))
+
+    def test_dedicated_group(self):
+        rows = {100: (1, 100, os.getuid(), COMMAND),
+                101: (100, 100, os.getuid(), "gcloud"),
+                102: (101, 100, os.getuid(), "ssh")}
+        self.assertTrue(tunnels.dedicated(100, rows))
+        rows[103] = (1, 100, os.getuid(), "unrelated")
+        self.assertFalse(tunnels.dedicated(100, rows))
+        rows[100] = (1, 99, os.getuid(), COMMAND)
+        self.assertFalse(tunnels.dedicated(100, rows))
+
+    def test_cwd_boundary(self):
+        for cwd, expected in [("/tmp/p2/subdir", True), ("/tmp/p2", True),
+                              ("/tmp/p20", False), ("/tmp/p3", False)]:
+            result = subprocess.CompletedProcess([], 0, "n" + cwd + "\n")
+            with patch.object(tunnels.subprocess, "run", return_value=result):
+                self.assertEqual(tunnels.inside(100, os.path.realpath("/tmp/p2")), expected)
+
+    def test_real_group_shutdown(self):
+        # A fake gcloud sleeps locally; the wrapper and process group are real.
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "gcloud"
+            executable.write_text("#!/bin/sh\nexec sleep 60\n")
+            executable.chmod(0o755)
+            process = subprocess.Popen(
+                ["bash", "-c", COMMAND.removeprefix("bash -c ")],
+                cwd=directory, env={**os.environ, "PATH": directory + ":" + os.environ["PATH"]},
+                start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            try:
+                tunnels.close(directory + "/different-clone")
+                self.assertIsNone(process.poll())
+                tunnels.close(directory)
+                self.assertEqual(process.wait(timeout=5), -15)
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid, 15)
+                    process.wait(timeout=5)
+
+    def test_clean_closes_tunnel_after_loss_guard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / ".spork").symlink_to(Path(__file__).resolve().parents[2])
+            (workspace / ".spork.local").mkdir()
+            (workspace / ".spork.local/config").write_text(
+                "ORIGIN_URL=test:tunnel.git\nTRUNK_BRANCH=main\n"
+            )
+            clone = workspace / "p1"
+            subprocess.run(["git", "init", "-q", str(clone)], check=True)
+            def git(*args):
+                return subprocess.run(["git", "-C", str(clone), *args], check=True)
+            git("symbolic-ref", "HEAD", "refs/heads/main")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.com",
+                "commit", "-q", "--allow-empty", "-m", "init")
+            git("remote", "add", "origin", "test:tunnel.git")
+            executable = workspace / "gcloud"
+            executable.write_text("#!/bin/sh\nexec sleep 60\n")
+            executable.chmod(0o755)
+            process = subprocess.Popen(
+                ["bash", "-c", COMMAND.removeprefix("bash -c ")], cwd=clone,
+                env={**os.environ, "PATH": directory + ":" + os.environ["PATH"]},
+                start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            env = {k: v for k, v in os.environ.items() if not k.startswith("SPORK_PROC_SWEEP")}
+            def clean():
+                return subprocess.run([str(workspace / ".spork/tools/clean.sh"), "p1"],
+                                      cwd=workspace, env=env, capture_output=True, text=True)
+            try:
+                (clone / "work.txt").touch()
+                self.assertEqual(clean().returncode, 1)
+                self.assertIsNone(process.poll())
+                (clone / "work.txt").unlink()
+                result = clean()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("Closing tunnel terminal", result.stdout)
+                self.assertEqual(process.wait(timeout=5), -15)
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid, 15)
+                    process.wait(timeout=5)
+
+
+if __name__ == "__main__":
+    unittest.main()
